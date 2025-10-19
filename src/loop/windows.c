@@ -1,7 +1,5 @@
 #include "loop.h"
 
-#ifdef LIBCORO_USE_WIN32
-
 #include <winsock2.h>
 #include <windows.h>
 #include <stdlib.h>
@@ -349,5 +347,3 @@ uint64_t loop_time_ms() {
     li.HighPart = ft.dwHighDateTime;
     return li.QuadPart / 10000ULL;
 }
-
-#endif

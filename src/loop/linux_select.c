@@ -1,7 +1,5 @@
 #include "loop.h"
 
-#ifdef LIBCORO_USE_LINUX_SELECT
-
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -548,5 +546,3 @@ void loop_destroy() {
     // clear thread-local pointer so loop_create() can recreate later
     current_loop = NULL;
 }
-
-#endif
