@@ -7,7 +7,26 @@ option(LIBCORO_USE_LINUX_EPOLL "Use Linux epoll backend" OFF)
 option(LIBCORO_USE_LINUX_SELECT "Use Linux select backend" OFF)
 option(LIBCORO_USE_WIN32 "Use Win32 backend" OFF)
 
-math(EXPR enabled_count "${LIBCORO_USE_LINUX_EPOLL}+${LIBCORO_USE_LINUX_SELECT}+${LIBCORO_USE_WIN32}")
+if(LIBCORO_USE_LINUX_EPOLL)
+    set(_epoll_val 1)
+else()
+    set(_epoll_val 0)
+endif()
+
+if(LIBCORO_USE_LINUX_SELECT)
+    set(_select_val 1)
+else()
+    set(_select_val 0)
+endif()
+
+if(LIBCORO_USE_WIN32)
+    set(_win32_val 1)
+else()
+    set(_win32_val 0)
+endif()
+
+math(EXPR enabled_count "${_epoll_val}+${_select_val}+${_win32_val}")
+
 if(enabled_count EQUAL 0)
     message(FATAL_ERROR "You must enable exactly one backend (EPOLL, SELECT, or WIN32).")
 elseif(enabled_count GREATER 1)
