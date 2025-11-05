@@ -276,6 +276,64 @@ cmake .. -DLIBCORO_USE_LINUX_EPOLL=ON
 make
 ```
 
+## 使用示例
+
+以下是一个简单的示例，展示如何使用libcoro创建和运行一个协程任务：
+
+```c
+#include "libcoro.h"
+#include <stdio.h>
+
+// 协程函数示例
+gen_ret_t example_coro_func(gen_ctx_t *ctx, void *arg) {
+    (void)arg;
+    
+    // 开始协程
+    gen_begin(ctx);
+    
+    // 第一次yield
+    gen_yield("First yield");
+
+    // 等待1秒
+    {
+        future_t *sleep_fut = async_sleep(1000);
+        gen_yield_from(sleep_fut);
+    }
+
+    // 第二次yield
+    gen_yield("Second yield");
+
+    // 再等待1秒
+    {
+        future_t *sleep_fut = async_sleep(1000);
+        gen_yield_from(sleep_fut);
+    }
+
+    // 完成
+    gen_end("Coroutine finished");
+}
+
+int main() {
+    // 创建事件循环
+    loop_t *loop = loop_create();
+    
+    // 创建生成器
+    gen_t *gen = gen_create(example_coro_func, NULL);
+    
+    // 创建任务
+    task_t *task = task_create(gen);
+    
+    // 运行事件循环
+    loop_run(task);
+    
+    // 清理资源
+    task_destroy(task);
+    loop_destroy();
+    
+    return 0;
+}
+```
+
 ## 许可证
 
 MIT许可证
