@@ -12,10 +12,10 @@ list(APPEND SRC_FILES
         src/future.c
         src/generator.c
         src/task.c
-        include/coro/loop.h
-        include/coro/future.h
-        include/coro/generator.h
-        include/coro/task.h
+        include/private/loop.h
+        include/private/future.h
+        include/private/generator.h
+        include/private/task.h
 )
 
 if(LIBCORO_OS_BACKEND STREQUAL "epoll")
@@ -34,10 +34,14 @@ target_sources(libcoro PRIVATE ${SRC_FILES})
 
 target_include_directories(libcoro
         PUBLIC
-            include/libcoro.h
+        include/public
         PRIVATE
-            include/coro
+        include/private
 )
+
+if(WIN32)
+    target_link_libraries(libcoro PRIVATE ws2_32)
+endif()
 
 add_executable(libcoro_tests
         tests/main.c
