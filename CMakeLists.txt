@@ -3,7 +3,7 @@ project(libcoro VERSION 1.0.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 
-set(LIBCORO_OS_BACKEND "" CACHE STRING "Choose OS backend: epoll, select, win")
+set(LIBCORO_OS_BACKEND "win" CACHE STRING "Choose OS backend: epoll, select, win")
 set_property(CACHE LIBCORO_OS_BACKEND PROPERTY STRINGS epoll select win)
 
 add_library(libcoro)
@@ -40,7 +40,7 @@ target_include_directories(libcoro
 )
 
 add_executable(libcoro_tests
-        test/main.c
+        tests/main.c
         tests/test_loop.c
 )
 target_link_libraries(libcoro_tests PRIVATE libcoro)
