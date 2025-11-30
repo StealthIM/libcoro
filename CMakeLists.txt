@@ -3,12 +3,10 @@ project(libcoro VERSION 1.0.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 
-option(LIBCORO_USE_LINUX_EPOLL "Use Linux epoll backend" ON)
-option(LIBCORO_USE_LINUX_SELECT "Use Linux select backend" ON)
-option(LIBCORO_USE_WIN "Use Win32 backend" ON)
-
 set(LIBCORO_OS_BACKEND "" CACHE STRING "Choose OS backend: epoll, select, win")
 set_property(CACHE LIBCORO_OS_BACKEND PROPERTY STRINGS epoll select win)
+
+add_library(libcoro)
 
 list(APPEND SRC_FILES
         src/future.c
@@ -32,16 +30,14 @@ else()
     message(FATAL_ERROR "No valid OS backend selected. Please choose one of: epoll, select, win")
 endif()
 
-add_library(libcoro STATIC ${SRC_FILES})
+target_sources(libcoro PRIVATE ${SRC_FILES})
 
 target_include_directories(libcoro
         PUBLIC
-            $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
-            $<INSTALL_INTERFACE:include>
+            include/libcoro.h
         PRIVATE
             include/coro
 )
-
 
 add_executable(libcoro_tests
         test/main.c

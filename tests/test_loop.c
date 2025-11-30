@@ -33,8 +33,6 @@
   #define closesocket close
 #endif
 
-#include "tools.h"
-
 const char *host = "postman-echo.com";
 
 static void socket_cb(loop_t *_, void *userdata) {
