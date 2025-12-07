@@ -11,10 +11,6 @@ int main(int argc, char** argv) {
         return 1;
     }
     if (strcmp(argv[1], "loop") == 0) return test_loop();
-    if (strcmp(argv[1], "all") == 0) {
-        if (test_loop() != 0) return 1;
-        return 0;
-    }
 
     printf("Unknown test: %s\n", argv[1]);
     return 1;

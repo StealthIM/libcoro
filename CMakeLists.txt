@@ -3,7 +3,7 @@ project(libcoro VERSION 1.0.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 
-set(LIBCORO_OS_BACKEND "win" CACHE STRING "Choose OS backend: epoll, select, win")
+set(LIBCORO_OS_BACKEND "" CACHE STRING "Choose OS backend: epoll, select, win")
 set_property(CACHE LIBCORO_OS_BACKEND PROPERTY STRINGS epoll select win)
 
 add_library(libcoro)
@@ -20,7 +20,6 @@ list(APPEND SRC_FILES
 
 if(LIBCORO_OS_BACKEND STREQUAL "epoll")
     list(APPEND SRC_FILES src/loop/linux_epoll.c)
-
 elseif(LIBCORO_OS_BACKEND STREQUAL "select")
     list(APPEND SRC_FILES src/loop/linux_select.c)
 

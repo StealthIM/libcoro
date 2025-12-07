@@ -90,6 +90,22 @@ void *gen_send(gen_t *gen, void *arg);
 #define gen_next(gen) gen_send((gen), NULL)
 void gen_close(gen_t *gen);
 
+#define generator_arg(name) \
+    name (type data); \
+    gen_ret_t _CONNECT1(name, _sub) (gen_ctx_t *ctx, void *arg); \
+    gen_t* name (void* data) { \
+        return gen_create(_CONNECT1(name, _sub), data); \
+    } \
+    gen_ret_t _CONNECT1(name, _sub) (gen_ctx_t *ctx, void *arg)
+
+#define generator(name) \
+    name (); \
+    gen_ret_t _CONNECT1(name, _sub) (gen_ctx_t *ctx, void *arg); \
+    gen_t* name () { \
+        return gen_create(_CONNECT1(name, _sub), NULL); \
+    } \
+    gen_ret_t _CONNECT1(name, _sub) (gen_ctx_t *ctx, void *arg)
+
 #ifdef __cplusplus
 }
 #endif
