@@ -23,8 +23,8 @@ void task_run(task_t *task);
     gen_ret_t _CONNECT1(name, _sub) (gen_ctx_t *ctx, void *arg); \
     task_t* name (void* data) { \
         gen_t* gen = gen_create(_CONNECT1(name, _sub), data); \
-        if (!gen) return NULL \
-        return task_create(gen)\
+        if (!gen) return NULL; \
+        return task_create(gen);\
     } \
     gen_ret_t _CONNECT1(name, _sub) (gen_ctx_t *ctx, void *arg)
 
@@ -33,8 +33,8 @@ void task_run(task_t *task);
     gen_ret_t _CONNECT1(name, _sub) (gen_ctx_t *ctx, void *arg); \
     task_t* name () { \
         gen_t* gen = gen_create(_CONNECT1(name, _sub), NULL); \
-        if (!gen) return NULL \
-        return task_create(gen)\
+        if (!gen) return NULL; \
+        return task_create(gen);\
     } \
     gen_ret_t _CONNECT1(name, _sub) (gen_ctx_t *ctx, void *arg)
 
