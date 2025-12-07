@@ -82,6 +82,11 @@ void gen_destroy(gen_t *gen);
             return GEN_NORMAL; \
     } \
     return -1;
+#define gen_return(val) \
+    __ctx->state = GEN_STATE_END; \
+    __ctx->ret_val = (void*)(val); \
+    return GEN_NORMAL; \
+
 #define gen_for(type, val, gen) \
     type val; \
     for(;!gen_finished(gen) && ((val = (type)gen_next(gen)) || 1); )
