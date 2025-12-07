@@ -19,7 +19,7 @@ void task_destroy(task_t *task);
 void task_run(task_t *task);
 
 #define task_arg(name) \
-    name (type data); \
+    name (void* data); \
     gen_ret_t _CONNECT1(name, _sub) (gen_ctx_t *ctx, void *arg); \
     task_t* name (void* data) { \
         gen_t* gen = gen_create(_CONNECT1(name, _sub), data); \
