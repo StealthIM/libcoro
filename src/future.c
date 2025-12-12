@@ -90,6 +90,7 @@ void sleep_cb(loop_t *_, void *userdata) {
 future_t *async_sleep(uint64_t ms) {
     future_t *fut = future_create();
     if (!fut) return NULL;
-    loop_add_timer(ms, sleep_cb, fut);
+    uint64_t cur_ms = loop_time_ms();
+    loop_add_timer(cur_ms + ms, sleep_cb, fut);
     return fut;
 }
