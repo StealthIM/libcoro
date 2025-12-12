@@ -2,16 +2,58 @@
 
 #include <winsock2.h>
 #include <windows.h>
+#include <mswsock.h>
 #include <stdlib.h>
-#include <stdint.h>
 #include <stdio.h>
+#include <string.h>
+#include <assert.h>
 
-#include "future.h"
+#include "task.h"
 
 #pragma comment(lib, "ws2_32.lib")
 
+/* thread-local current loop */
 __thread loop_t *current_loop = NULL;
 
+/* -------------------- internal data -------------------- */
+
+typedef enum {
+    LOOP_OV_POST = 1,
+    LOOP_OV_OP   = 2
+} loop_ov_kind_t;
+
+typedef struct loop_op_s {
+    OVERLAPPED ov;
+    loop_ov_kind_t kind; /* must be placed right after OVERLAPPED to read from raw OVERLAPPED* */
+    loop_op_type_t type;
+    loop_op_id_t id;
+    SOCKET sock;
+
+    loop_io_cb_t cb;
+    void *userdata;
+
+    union {
+        struct { char *buf; unsigned long len; } recv;
+        struct {
+            char *buf;
+            unsigned long len;
+            WSABUF wbuf;
+        } send;
+        struct { char addr_buf[256]; int addr_len; } conn;
+        struct { SOCKET accept_sock; } acc;
+    };
+
+    struct loop_op_s *next;
+} loop_op_t;
+
+typedef struct loop_post_s {
+    OVERLAPPED ov;
+    loop_ov_kind_t kind; /* placed right after OVERLAPPED */
+    loop_cb_t cb;
+    void *userdata;
+} loop_post_t;
+
+/* timer heap element */
 typedef struct timer_req_s {
     loop_cb_t cb;
     void *userdata;
@@ -20,43 +62,38 @@ typedef struct timer_req_s {
     int cancelled;
 } timer_req_t;
 
-typedef struct handle_req_s {
-    SOCKET sock;
-    struct handle_req_s *next;
-    char *buf;
-    int buf_len;
-} handle_req_t;
+/* soon (microtask) node */
+typedef struct soon_task_s {
+    loop_cb_t cb;
+    void *userdata;
+    struct soon_task_s *next;
+} soon_task_t;
 
+/* main loop state */
 struct loop_s {
     HANDLE iocp;
+    volatile LONG next_op_id;
     volatile LONG next_timer_id;
     int stop_flag;
 
-    timer_req_t **heap;   // 最小堆存储定时器
+    /* timer heap */
+    timer_req_t **heap;
     int heap_size;
     int heap_cap;
 
-    handle_req_t *handles;
+    /* microtask queue */
+    soon_task_t *soon_head;
+    soon_task_t *soon_tail;
+
+    /* active ops linked list (for cancel lookup) */
+    struct loop_op_s *ops_head;
+
+    /* extension ptrs */
+    LPFN_CONNECTEX lpConnectEx;
+    LPFN_ACCEPTEX lpAcceptEx;
 };
 
-typedef enum { EV_POST, EV_SOCKET } loop_ev_type_t;
-
-typedef struct loop_event_s {
-    OVERLAPPED ov;             // 用于 IOCP
-    loop_ev_type_t type;       // 事件类型
-    void *userdata;            // 回调要用的 userdata
-    union {
-        struct {
-            loop_cb_t cb;
-        } post;
-        struct {
-            loop_cb_t cb;
-            handle_req_t *handle;
-        } sock;
-    };
-} loop_event_t;
-
-// -------------------- 最小堆操作 --------------------
+/* -------------------- heap helpers -------------------- */
 
 static void heap_swap(timer_req_t **a, timer_req_t **b) {
     timer_req_t *tmp = *a;
@@ -87,7 +124,11 @@ static void heap_down(timer_req_t **heap, int n, int idx) {
 static void heap_push(loop_t *loop, timer_req_t *t) {
     if (loop->heap_size == loop->heap_cap) {
         loop->heap_cap = loop->heap_cap ? loop->heap_cap * 2 : 16;
-        loop->heap = realloc(loop->heap, loop->heap_cap * sizeof(timer_req_t*));
+        timer_req_t **new_heap = realloc(loop->heap, loop->heap_cap * sizeof(timer_req_t*));
+        if (!new_heap) {
+            abort();
+        }
+        loop->heap = new_heap;
     }
     loop->heap[loop->heap_size] = t;
     heap_up(loop->heap, loop->heap_size);
@@ -109,26 +150,73 @@ static timer_req_t* heap_pop(loop_t *loop) {
     return ret;
 }
 
-// -------------------- 定时器 API --------------------
+/* -------------------- op list helpers -------------------- */
+
+static loop_op_id_t alloc_op_id(loop_t *loop) {
+    return (loop_op_id_t)InterlockedIncrement(&loop->next_op_id);
+}
+
+static void ops_add(loop_t *loop, loop_op_t *op) {
+    op->next = loop->ops_head;
+    loop->ops_head = op;
+}
+
+static void ops_remove(loop_t *loop, loop_op_t *op) {
+    loop_op_t **pp = &loop->ops_head;
+    while (*pp && *pp != op) pp = &(*pp)->next;
+    if (*pp) *pp = op->next;
+}
+
+static loop_op_t *ops_find_by_id(loop_t *loop, loop_op_id_t id) {
+    loop_op_t *p = loop->ops_head;
+    while (p) {
+        if (p->id == id) return p;
+        p = p->next;
+    }
+    return NULL;
+}
+
+/* -------------------- extension loader -------------------- */
+
+static void load_extensions_if_needed(loop_t *loop, SOCKET s) {
+    DWORD bytes = 0;
+    if (!loop->lpConnectEx) {
+        GUID guid = WSAID_CONNECTEX;
+        WSAIoctl(s, SIO_GET_EXTENSION_FUNCTION_POINTER,
+                 &guid, sizeof(guid),
+                 &loop->lpConnectEx, sizeof(loop->lpConnectEx),
+                 &bytes, NULL, NULL);
+    }
+    if (!loop->lpAcceptEx) {
+        GUID guid = WSAID_ACCEPTEX;
+        WSAIoctl(s, SIO_GET_EXTENSION_FUNCTION_POINTER,
+                 &guid, sizeof(guid),
+                 &loop->lpAcceptEx, sizeof(loop->lpAcceptEx),
+                 &bytes, NULL, NULL);
+    }
+}
+
+/* -------------------- timers & soon tasks -------------------- */
 
 timer_id_t loop_add_timer(uint64_t when_ms, loop_cb_t cb, void *userdata) {
-    timer_req_t *req = calloc(1, sizeof(timer_req_t));
-    req->cb = cb;
-    req->userdata = userdata;
+    if (!cb) return 0;
     loop_t *loop = loop_get();
-    req->id = InterlockedIncrement(&loop->next_timer_id);
-    req->expire_ms = loop_time_ms() + when_ms;
+    timer_req_t *t = calloc(1, sizeof(timer_req_t));
+    t->cb = cb;
+    t->userdata = userdata;
+    t->id = (timer_id_t)InterlockedIncrement(&loop->next_timer_id);
+    t->expire_ms = when_ms;
+    t->cancelled = 0;
+    heap_push(loop, t);
 
-    heap_push(loop, req);
-
-    // 唤醒 IOCP 线程以重新计算超时时间
+    /* wake IOCP so that loop recalculates timeout */
     PostQueuedCompletionStatus(loop->iocp, 0, 0, NULL);
-    return req->id;
+    return t->id;
 }
 
 int loop_cancel_timer(timer_id_t id) {
     loop_t *loop = loop_get();
-    for (int i = 0; i < loop->heap_size; i++) {
+    for (int i = 0; i < loop->heap_size; ++i) {
         if (loop->heap[i]->id == id) {
             loop->heap[i]->cancelled = 1;
             return 0;
@@ -137,206 +225,415 @@ int loop_cancel_timer(timer_id_t id) {
     return -1;
 }
 
-// -------------------- posted 事件 --------------------
-
 void loop_call_soon(loop_cb_t cb, void *userdata) {
-    loop_event_t *ev = calloc(1, sizeof(loop_event_t));
-    ev->type = EV_POST;
-    ev->userdata = userdata;
-    ev->post.cb = cb;
-
+    if (!cb) return;
     loop_t *loop = loop_get();
-    PostQueuedCompletionStatus(loop->iocp, 0, 0, &ev->ov);
+    soon_task_t *t = malloc(sizeof(soon_task_t));
+    t->cb = cb;
+    t->userdata = userdata;
+    t->next = NULL;
+    if (!loop->soon_tail) {
+        loop->soon_head = loop->soon_tail = t;
+    } else {
+        loop->soon_tail->next = t;
+        loop->soon_tail = t;
+    }
+    /* wake up IOCP */
+    PostQueuedCompletionStatus(loop->iocp, 0, 0, NULL);
 }
 
-// -------------------- socket HANDLE --------------------
+static void run_soon_tasks(loop_t *loop) {
+    while (loop->soon_head) {
+        soon_task_t *t = loop->soon_head;
+        loop->soon_head = t->next;
+        if (!loop->soon_head) loop->soon_tail = NULL;
+        loop_cb_t cb = t->cb;
+        void *ud = t->userdata;
+        free(t);
+        if (cb) cb(loop, ud);
+    }
+}
 
-int loop_register_handle(void *handle, loop_cb_t cb, void *userdata) {
-    SOCKET s = (SOCKET)handle;
+static void run_timers(loop_t *loop) {
+    uint64_t now = loop_time_ms();
+    while (1) {
+        timer_req_t *top = heap_top(loop);
+        if (!top) break;
+        if (top->expire_ms > now) break;
+        heap_pop(loop);
+        if (!top->cancelled) {
+            loop_cb_t cb = top->cb;
+            void *ud = top->userdata;
+            free(top);
+            if (cb) cb(loop, ud);
+            /* continue to next timer */
+        } else {
+            free(top);
+        }
+    }
+}
 
+/* -------------------- core IO ops (post/recv/send/connect/accept) -------------------- */
+
+int loop_bind_handle(void *handle) {
+    if (!handle) return -1;
     loop_t *loop = loop_get();
+    SOCKET s = (SOCKET)(intptr_t)handle;
+    HANDLE h = CreateIoCompletionPort((HANDLE)s, loop->iocp, (ULONG_PTR)s, 0);
+    return h ? 0 : -1;
+}
 
-    if (!CreateIoCompletionPort((HANDLE)s, loop->iocp, s, 0))
-        return -1;
+loop_op_id_t loop_post_recv(void *handle, char *buf, unsigned long len, loop_io_cb_t cb, void *userdata) {
+    if (!handle || !cb || !buf || len == 0) return LOOP_INVALID_OP_ID;
+    loop_t *loop = loop_get();
+    SOCKET s = (SOCKET)(intptr_t)handle;
 
-    handle_req_t *req = calloc(1, sizeof(handle_req_t));
-    req->sock = s;
-    req->buf_len = 1024;
-    req->buf = (char*)malloc(req->buf_len);
+    loop_op_t *op = calloc(1, sizeof(loop_op_t));
+    ZeroMemory(&op->ov, sizeof(op->ov));
+    op->kind = LOOP_OV_OP;
+    op->type = LOOP_OP_RECV;
+    op->id = alloc_op_id(loop);
+    op->sock = s;
+    op->cb = cb;
+    op->userdata = userdata;
+    op->recv.buf = buf;
+    op->recv.len = len;
 
-    req->next = loop->handles;
-    loop->handles = req;
+    ops_add(loop, op);
 
-    loop_event_t *ev = calloc(1, sizeof(loop_event_t));
-    ev->type = EV_SOCKET;
-    ev->userdata = userdata;
-    ev->sock.cb = cb;
-    ev->sock.handle = req;
-
-    DWORD flags = 0;
-    if (
-        WSARecv(s,
-            &(WSABUF){.buf=req->buf,.len=req->buf_len},
-            1,
-            NULL,
-            &flags,
-            &ev->ov,
-            NULL
-            ) == SOCKET_ERROR
-    ) {
+    WSABUF ws = { len, buf };
+    DWORD flags = 0, bytes = 0;
+    int ret = WSARecv(s, &ws, 1, &bytes, &flags, &op->ov, NULL);
+    if (ret != 0) {
         int err = WSAGetLastError();
         if (err != WSA_IO_PENDING) {
-            free(ev);
-            free(req->buf);
-            free(req);
-            return -1;
+            ops_remove(loop, op);
+            free(op);
+            return LOOP_INVALID_OP_ID;
         }
     }
-
-    return 0;
+    return op->id;
 }
 
-int loop_unregister_handle(void *handle, bool close_socket) {
-    SOCKET s = (SOCKET)handle;
+loop_op_id_t loop_post_send(void *handle, const char *buf, unsigned long len, loop_io_cb_t cb, void *userdata) {
+    if (!handle || !cb || !buf || len == 0) return LOOP_INVALID_OP_ID;
     loop_t *loop = loop_get();
-    handle_req_t **p = &loop->handles;
-    while (*p && (*p)->sock != s) p = &(*p)->next;
-    if (*p) {
-        handle_req_t *req = *p;
-        *p = req->next;
+    SOCKET s = (SOCKET)(intptr_t)handle;
 
-        CancelIoEx((HANDLE)s, NULL);
-        if (close_socket) closesocket(s);
-        free(req->buf);
-        free(req);
-        return 0;
+    loop_op_t *op = calloc(1, sizeof(loop_op_t));
+    ZeroMemory(&op->ov, sizeof(op->ov));
+    op->kind = LOOP_OV_OP;
+    op->type = LOOP_OP_SEND;
+    op->id = alloc_op_id(loop);
+    op->sock = s;
+    op->cb = cb;
+    op->userdata = userdata;
+
+    /* copy buffer to simplify lifetime */
+    op->send.buf = malloc((size_t)len);
+    if (!op->send.buf) { free(op); return LOOP_INVALID_OP_ID; }
+    memcpy(op->send.buf, buf, (size_t)len);
+    op->send.len = len;
+    op->send.wbuf.buf = op->send.buf;
+    op->send.wbuf.len = (ULONG)len;
+
+    ops_add(loop, op);
+
+    DWORD sent = 0;
+    int ret = WSASend(s, &op->send.wbuf, 1, &sent, 0, &op->ov, NULL);
+    if (ret != 0) {
+        int err = WSAGetLastError();
+        if (err != WSA_IO_PENDING) {
+            ops_remove(loop, op);
+            if (op->send.buf) free(op->send.buf);
+            free(op);
+            return LOOP_INVALID_OP_ID;
+        }
     }
-    return -1;
+    return op->id;
 }
 
-// -------------------- loop 主循环 --------------------
-
-void loop_run_once() {
-    DWORD bytes;
-    ULONG_PTR key;
-    OVERLAPPED *ov;
-
-    uint64_t now = loop_time_ms();
-    DWORD timeout = INFINITE;
+loop_op_id_t loop_connect_async(void *handle, const struct sockaddr *addr, int addrlen, loop_io_cb_t cb, void *userdata) {
+    if (!handle || !addr || !cb) return LOOP_INVALID_OP_ID;
     loop_t *loop = loop_get();
+    SOCKET s = (SOCKET)(intptr_t)handle;
 
-    timer_req_t *top = heap_top(loop);
-    if (top) {
-        if (top->expire_ms <= now) {
-            heap_pop(loop);
-            if (!top->cancelled) {
-                loop_cb_t cb = top->cb;
-                void *ud = top->userdata;
-                cb(loop, ud);
-                free(top);
-                return;
-            }
-            free(top);
+    /* load ConnectEx pointer */
+    load_extensions_if_needed(loop, s);
+
+    struct sockaddr_in local = {0};
+    local.sin_family = AF_INET;
+    local.sin_addr.s_addr = INADDR_ANY;
+    local.sin_port = 0;
+    if (bind(s, (struct sockaddr*)&local, sizeof(local)) != 0) {
+        return LOOP_INVALID_OP_ID;
+    }
+
+    loop_op_t *op = calloc(1, sizeof(loop_op_t));
+    ZeroMemory(&op->ov, sizeof(op->ov));
+    op->kind = LOOP_OV_OP;
+    op->type = LOOP_OP_CONNECT;
+    op->id = alloc_op_id(loop);
+    op->sock = s;
+    op->cb = cb;
+    op->userdata = userdata;
+
+    ops_add(loop, op);
+
+    if (loop->lpConnectEx) {
+        BOOL ok = loop->lpConnectEx(s, addr, addrlen, NULL, 0, NULL, &op->ov);
+        if (ok) {
+            PostQueuedCompletionStatus(loop->iocp, 0, (ULONG_PTR)s, &op->ov);
         } else {
-            uint64_t diff = top->expire_ms - now;
-            timeout = (DWORD)diff;
+            int err = WSAGetLastError();
+            if (err != WSA_IO_PENDING) {
+                ops_remove(loop, op);
+                free(op);
+                return LOOP_INVALID_OP_ID;
+            }
         }
     }
+    else {
+        /* fallback: non-blocking connect; user must ensure socket non-blocking */
+        int ret = connect(s, addr, addrlen);
+        if (ret != 0) {
+            int err = WSAGetLastError();
+            if (err != WSAEWOULDBLOCK && err != WSAEINPROGRESS) {
+                ops_remove(loop, op);
+                free(op);
+                return LOOP_INVALID_OP_ID;
+            }
+            /* We don't have explicit wait for writability here without extra machinery; prefer ConnectEx. */
+        }
+    }
+    return op->id;
+}
+
+loop_op_id_t loop_accept_async(void *listen_handle, void **accept_handle_out, loop_io_cb_t cb, void *userdata) {
+    if (!listen_handle || !cb) return LOOP_INVALID_OP_ID;
+    loop_t *loop = loop_get();
+    SOCKET listen_sock = (SOCKET)(intptr_t)listen_handle;
+
+    load_extensions_if_needed(loop, listen_sock);
+    if (!loop->lpAcceptEx) return LOOP_INVALID_OP_ID;
+
+    SOCKET acc = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (acc == INVALID_SOCKET) return LOOP_INVALID_OP_ID;
+
+    struct sockaddr_in local = {0};
+    local.sin_family = AF_INET;
+    local.sin_addr.s_addr = INADDR_ANY;
+    local.sin_port = 0;
+    if (bind(acc, (struct sockaddr*)&local, sizeof(local)) != 0) {
+        return LOOP_INVALID_OP_ID;
+    }
+
+    loop_op_t *op = calloc(1, sizeof(loop_op_t));
+    ZeroMemory(&op->ov, sizeof(op->ov));
+    op->kind = LOOP_OV_OP;
+    op->type = LOOP_OP_ACCEPT;
+    op->id = alloc_op_id(loop);
+    op->sock = listen_sock;
+    op->cb = cb;
+    op->userdata = userdata;
+    op->acc.accept_sock = acc;
+
+    ops_add(loop, op);
+
+    DWORD bytes = 0;
+    BOOL ok = loop->lpAcceptEx(listen_sock, acc, op->conn.addr_buf, 0,
+                               sizeof(struct sockaddr_storage), sizeof(struct sockaddr_storage),
+                               &bytes, &op->ov);
+    int err = WSAGetLastError();
+    if (err != WSA_IO_PENDING) {
+        ops_remove(loop, op);
+        closesocket(acc);
+        free(op);
+        return LOOP_INVALID_OP_ID;
+    }
+
+    if (accept_handle_out) *accept_handle_out = (void*)(intptr_t)acc;
+    return op->id;
+}
+
+int loop_cancel_op(loop_op_id_t id) {
+    if (id == LOOP_INVALID_OP_ID) return -1;
+    loop_t *loop = loop_get();
+    loop_op_t *op = ops_find_by_id(loop, id);
+    if (!op) return -1;
+    BOOL ok = CancelIoEx((HANDLE)op->sock, &op->ov);
+    PostQueuedCompletionStatus(loop->iocp, 0, 0, NULL);
+    return ok ? 0 : -1;
+}
+
+/* -------------------- completion handling -------------------- */
+
+static void complete_and_free_op(loop_t *loop, loop_op_t *op, int err, unsigned long bytes) {
+    /* remove from list */
+    ops_remove(loop, op);
+
+    recv_data_t r;
+    recv_data_t *rptr = NULL;
+    if (op->type == LOOP_OP_RECV) {
+        r.userdata = op->userdata;
+        r.data = op->recv.buf;
+        r.len = bytes;
+        rptr = &r;
+    }
+
+    /* ConnectEx success: update connect context */
+    if (op->type == LOOP_OP_CONNECT && err == 0) {
+        setsockopt(op->sock, SOL_SOCKET, SO_UPDATE_CONNECT_CONTEXT, NULL, 0);
+    }
+
+    /* AcceptEx success: update accept context for the accepted socket */
+    if (op->type == LOOP_OP_ACCEPT && err == 0) {
+        setsockopt(op->acc.accept_sock, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT, (char*)&op->sock, sizeof(op->sock));
+    }
+
+    if (op->cb) {
+        op->cb(loop, op->userdata, op->type, err, bytes, rptr);
+    }
+
+    if (op->type == LOOP_OP_SEND && op->send.buf) {
+        free(op->send.buf);
+    }
+
+    /* Note: for accept, we leave accepted socket open and hand it to user via callback */
+    free(op);
+}
+
+/* -------------------- main loop run_once & run -------------------- */
+
+static void run_pending_soon_and_timers(loop_t *loop) {
+    run_soon_tasks(loop);
+    run_timers(loop);
+}
+
+static DWORD calc_next_timeout_ms(loop_t *loop) {
+    timer_req_t *top = heap_top(loop);
+    if (!top) return INFINITE;
+    uint64_t now = loop_time_ms();
+    if (top->expire_ms <= now) return 0;
+    uint64_t diff = top->expire_ms - now;
+    if (diff > (uint64_t)INFINITE - 1) return INFINITE;
+    return (DWORD)diff;
+}
+
+static void loop_run_once() {
+    loop_t *loop = loop_get();
+    run_pending_soon_and_timers(loop);
+
+    DWORD timeout = calc_next_timeout_ms(loop);
+
+    DWORD bytes = 0;
+    ULONG_PTR key = 0;
+    OVERLAPPED *ov = NULL;
 
     BOOL ok = GetQueuedCompletionStatus(loop->iocp, &bytes, &key, &ov, timeout);
-    if (!ok && ov == NULL) return;
+
+    /* After wake, first run timers/soon again in case wake came for them */
+    run_pending_soon_and_timers(loop);
+
     if (!ov) return;
 
-    loop_event_t *ev = (loop_event_t*)ov;
-
-    switch (ev->type) {
-        case EV_POST:
-            ev->post.cb(loop, ev->userdata);
-            free(ev);
-            break;
-        case EV_SOCKET: {
-            recv_data_t data = {
-                .userdata = ev->userdata,
-                .data = ev->sock.handle->buf,
-                .len = bytes
-            };
-            if (bytes == 0) {
-                loop_unregister_handle((void*)ev->sock.handle->sock, true);
-                break;
-            }
-            ev->sock.cb(loop, &data);
-
-            DWORD flags = 0;
-            DWORD rec_bytes;
-            ZeroMemory(ev->sock.handle->buf, ev->sock.handle->buf_len);
-            ZeroMemory(&ev->ov, sizeof(OVERLAPPED));
-            int ret = WSARecv(ev->sock.handle->sock,
-                              &(WSABUF){ .buf = ev->sock.handle->buf, .len = ev->sock.handle->buf_len },
-                              1,
-                              &rec_bytes,
-                              &flags,
-                              &ev->ov,
-                              NULL);
-            if (ret == SOCKET_ERROR && WSAGetLastError() != WSA_IO_PENDING) {
-                loop_unregister_handle((void*)ev->sock.handle->sock, false);
-                break;
-            }
-            break;
-        }
+    /* read kind field placed right after OVERLAPPED */
+    loop_ov_kind_t kind = *(loop_ov_kind_t *)((char*)ov + sizeof(OVERLAPPED));
+    if (kind == LOOP_OV_POST) {
+        loop_post_t *p = (loop_post_t*)ov;
+        loop_cb_t cb = p->cb;
+        void *ud = p->userdata;
+        free(p);
+        if (cb) cb(loop, ud);
+        return;
     }
-}
+    if (kind != LOOP_OV_OP) {
+        /* unknown overlapped, ignore */
+        return;
+    }
 
-void loop_stop_callback(future_t *_, void *userdata) {
-    loop_stop();
+    loop_op_t *op = (loop_op_t*)ov;
+    int err = ok ? 0 : (int)GetLastError();
+
+    /* handle special cases: recv zero => peer closed */
+    if (op->type == LOOP_OP_RECV && err == 0 && bytes == 0) {
+        /* indicate EOF (caller receives bytes==0) */
+        complete_and_free_op(loop, op, 0, 0);
+        return;
+    }
+
+    complete_and_free_op(loop, op, err, bytes);
 }
 
 void loop_run(task_t *task) {
     loop_t *loop = loop_get();
-    future_add_done_callback(task->future, loop_stop_callback, loop);
     task_run(task);
-    while (!loop->stop_flag || loop->heap_size!=0 || loop->handles) {
+    while (!loop->stop_flag || loop->heap_size!=0) {
         loop_run_once();
     }
 }
-// -------------------- loop 控制 --------------------
+
+/* -------------------- create / destroy / time -------------------- */
 
 loop_t *loop_create_sub() {
     WSADATA wsa;
-    WSAStartup(MAKEWORD(2,2), &wsa);
-
+    if (WSAStartup(MAKEWORD(2,2), &wsa) != 0) {
+        return NULL;
+    }
     loop_t *loop = calloc(1, sizeof(loop_t));
     loop->iocp = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 1);
-    loop->next_timer_id = 1;
+    loop->next_op_id = 0;
+    loop->next_timer_id = 0;
+    loop->heap = NULL;
+    loop->heap_size = 0;
+    loop->heap_cap = 0;
+    loop->soon_head = loop->soon_tail = NULL;
+    loop->ops_head = NULL;
+    loop->lpConnectEx = NULL;
+    loop->lpAcceptEx = NULL;
+    loop->stop_flag = 0;
     return loop;
 }
 
 void loop_stop() {
     loop_t *loop = loop_get();
     loop->stop_flag = 1;
+    PostQueuedCompletionStatus(loop->iocp, 0, 0, NULL);
 }
 
 void loop_destroy() {
+    loop_t *loop = loop_get();
+    if (!loop) return;
+
     loop_stop();
 
-    loop_t *loop = loop_get();
-
-    CloseHandle(loop->iocp);
-
-    for (int i = 0; i < loop->heap_size; i++) {
-        free(loop->heap[i]);
+    /* cancel and free pending ops */
+    loop_op_t *op = loop->ops_head;
+    while (op) {
+        loop_op_t *n = op->next;
+        CancelIoEx((HANDLE)op->sock, &op->ov);
+        if (op->type == LOOP_OP_SEND && op->send.buf) free(op->send.buf);
+        if (op->type == LOOP_OP_ACCEPT && op->acc.accept_sock) closesocket(op->acc.accept_sock);
+        free(op);
+        op = n;
     }
+
+    /* free timers */
+    for (int i = 0; i < loop->heap_size; ++i) free(loop->heap[i]);
     free(loop->heap);
 
-    handle_req_t *h = loop->handles;
-    while (h) {
-        handle_req_t *next = h->next;
-        closesocket(h->sock);
-        free(h->buf);
-        free(h);
-        h = next;
+    /* free soon tasks */
+    soon_task_t *s = loop->soon_head;
+    while (s) {
+        soon_task_t *n = s->next;
+        free(s);
+        s = n;
     }
+
+    CloseHandle(loop->iocp);
     WSACleanup();
     free(loop);
+    current_loop = NULL;
 }
 
 uint64_t loop_time_ms() {

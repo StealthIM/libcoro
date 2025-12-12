@@ -1,20 +1,43 @@
 #include "loop.h"
 
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <unistd.h>
-#include <fcntl.h>
 #include <stdlib.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/select.h>
+#include <fcntl.h>
 #include <errno.h>
 #include <time.h>
-#include <limits.h>
+#include <assert.h>
 
-// -------------------- 数据结构 --------------------
+/* thread-local current loop */
+__thread loop_t *current_loop = NULL;
 
+/* -------------------- internal types -------------------- */
+
+typedef struct loop_op_s {
+    loop_op_type_t type; /* public type */
+    loop_op_id_t id;
+    int fd; /* socket fd (or listen fd for accept) */
+
+    loop_io_cb_t cb;
+    void *userdata;
+
+    int cancelled; /* logical cancellation flag */
+
+    union {
+        struct { char *buf; unsigned long len; } recv;
+        struct { char *buf; unsigned long len; } send;
+        struct { struct sockaddr_storage addr; socklen_t addrlen; int state; } conn;
+        struct { int accept_fd; } acc;
+    } u;
+
+    struct loop_op_s *next;
+} loop_op_t;
+
+/* timer heap element */
 typedef struct timer_req_s {
     loop_cb_t cb;
     void *userdata;
@@ -23,62 +46,62 @@ typedef struct timer_req_s {
     int cancelled;
 } timer_req_t;
 
-typedef struct handle_req_s {
-    int fd;
-    loop_cb_t cb;           // 用户回调（当收到数据时，回调传入 recv_data_t*）
-    void *userdata;         // 用户 userdata，与 Windows 版本语义保持一致
-    struct handle_req_s *next;
-    char *buf;
-    int buf_len;
-    int closing;            // 标记正在注销（由任何线程设置） —— 现在单线程，仅作状态标记
-    struct handle_req_s *next_free; // 延迟释放链表（主循环安全释放）
-} handle_req_t;
-
-typedef struct posted_event_s {
+/* soon (microtask) node */
+typedef struct soon_task_s {
     loop_cb_t cb;
     void *userdata;
-    struct posted_event_s *next;
-} posted_event_t;
+    struct soon_task_s *next;
+} soon_task_t;
 
+/* main loop state */
 struct loop_s {
-    int wake_r;             // pipe read end (用于唤醒 select)
-    int wake_w;             // pipe write end
-    volatile long next_timer_id;
+    volatile int next_op_id;
+    volatile int next_timer_id;
     int stop_flag;
 
+    /* timer heap */
     timer_req_t **heap;
     int heap_size;
     int heap_cap;
 
-    handle_req_t *handles;      // 链表（active handles）
-    handle_req_t *to_free;      // 延迟释放链表（主循环安全释放）
+    /* microtask queue */
+    soon_task_t *soon_head;
+    soon_task_t *soon_tail;
 
-    posted_event_t *posted_head;
-    posted_event_t *posted_tail;
+    /* active ops linked list */
+    loop_op_t *ops_head;
+
+    /* wake pipe to interrupt select */
+    int wake_r;
+    int wake_w;
 };
 
-__thread loop_t *current_loop = NULL;
+/* -------------------- utilities -------------------- */
 
-// -------------------- 时间辅助 --------------------
-
-static uint64_t now_ms(void) {
+static uint64_t loop_time_ms_impl() {
     struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)(ts.tv_nsec / 1000000ULL);
+    if (clock_gettime(CLOCK_REALTIME, &ts) == 0) {
+        return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)(ts.tv_nsec / 1000000ULL);
+    }
+    /* fallback */
+    return 0;
 }
 
 uint64_t loop_time_ms() {
-    return now_ms();
+    return loop_time_ms_impl();
 }
 
-// -------------------- 最小堆操作（单线程，无锁） --------------------
-
-static void heap_swap(timer_req_t **a, timer_req_t **b) {
-    timer_req_t *tmp = *a;
-    *a = *b;
-    *b = tmp;
+static int set_nonblocking(int fd) {
+    if (fd < 0) return -1;
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags < 0) return -1;
+    if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) return -1;
+    return 0;
 }
 
+/* -------------------- heap helpers -------------------- */
+
+static void heap_swap(timer_req_t **a, timer_req_t **b) { timer_req_t *tmp = *a; *a = *b; *b = tmp; }
 static void heap_up(timer_req_t **heap, int idx) {
     while (idx > 0) {
         int p = (idx - 1) / 2;
@@ -87,7 +110,6 @@ static void heap_up(timer_req_t **heap, int idx) {
         idx = p;
     }
 }
-
 static void heap_down(timer_req_t **heap, int n, int idx) {
     while (1) {
         int l = idx * 2 + 1, r = idx * 2 + 2, smallest = idx;
@@ -98,25 +120,19 @@ static void heap_down(timer_req_t **heap, int n, int idx) {
         idx = smallest;
     }
 }
-
 static void heap_push(loop_t *loop, timer_req_t *t) {
     if (loop->heap_size == loop->heap_cap) {
-        int newcap = loop->heap_cap ? loop->heap_cap * 2 : 16;
-        timer_req_t **tmp = realloc(loop->heap, (size_t)newcap * sizeof(timer_req_t *));
-        if (!tmp) return; // OOM: 忍痛不插入
-        loop->heap = tmp;
-        loop->heap_cap = newcap;
+        loop->heap_cap = loop->heap_cap ? loop->heap_cap * 2 : 16;
+        timer_req_t **new_heap = realloc(loop->heap, loop->heap_cap * sizeof(timer_req_t*));
+        if (!new_heap) abort();
+        loop->heap = new_heap;
     }
     loop->heap[loop->heap_size] = t;
     heap_up(loop->heap, loop->heap_size);
     loop->heap_size++;
 }
-
-static timer_req_t *heap_top(loop_t *loop) {
-    return loop->heap_size ? loop->heap[0] : NULL;
-}
-
-static timer_req_t *heap_pop(loop_t *loop) {
+static timer_req_t* heap_top(loop_t *loop) { return loop->heap_size ? loop->heap[0] : NULL; }
+static timer_req_t* heap_pop(loop_t *loop) {
     if (!loop->heap_size) return NULL;
     timer_req_t *ret = loop->heap[0];
     loop->heap_size--;
@@ -127,422 +143,405 @@ static timer_req_t *heap_pop(loop_t *loop) {
     return ret;
 }
 
-// -------------------- posted 事件队列 --------------------
+/* -------------------- op list helpers -------------------- */
 
-void loop_call_soon(loop_cb_t cb, void *userdata) {
-    if (!cb) return;
-    loop_t *loop = loop_get();
-    if (!loop) return;
-    posted_event_t *p = calloc(1, sizeof(posted_event_t));
-    if (!p) return;
-    p->cb = cb;
-    p->userdata = userdata;
-    p->next = NULL;
-
-    if (loop->posted_tail) {
-        loop->posted_tail->next = p;
-        loop->posted_tail = p;
-    } else {
-        loop->posted_head = loop->posted_tail = p;
-    }
-
-    // 唤醒 select（写 pipe）
-    ssize_t r;
-    uint8_t one = 1;
-    do { r = write(loop->wake_w, &one, 1); } while (r == -1 && errno == EINTR);
-    (void)r;
+static loop_op_id_t alloc_op_id(loop_t *loop) { return (loop_op_id_t)++loop->next_op_id; }
+static void ops_add(loop_t *loop, loop_op_t *op) { op->next = loop->ops_head; loop->ops_head = op; }
+static void ops_remove(loop_t *loop, loop_op_t *op) {
+    loop_op_t **pp = &loop->ops_head;
+    while (*pp && *pp != op) pp = &(*pp)->next;
+    if (*pp) *pp = op->next;
+}
+static loop_op_t *ops_find_by_id(loop_t *loop, loop_op_id_t id) {
+    loop_op_t *p = loop->ops_head;
+    while (p) { if (p->id == id) return p; p = p->next; }
+    return NULL;
 }
 
-// -------------------- handle (socket) 的注册/注销（单线程） --------------------
-
-// helper: set non-blocking
-static int set_nonblocking(int fd) {
-    int flags = fcntl(fd, F_GETFL, 0);
-    if (flags == -1) return -1;
-    if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1) return -1;
-    return 0;
-}
-
-int loop_register_handle(void *handle, loop_cb_t cb, void *userdata) {
-    if (!handle || !cb) return -1;
-    loop_t *loop = loop_get();
-    if (!loop) return -1;
-    int fd = (int)(intptr_t)handle;
-
-    if (set_nonblocking(fd) != 0) {
-        return -1;
-    }
-
-    handle_req_t *req = calloc(1, sizeof(handle_req_t));
-    if (!req) return -1;
-    req->fd = fd;
-    req->cb = cb;
-    req->userdata = userdata;
-    req->buf_len = 4096;
-    req->buf = malloc((size_t)req->buf_len);
-    if (!req->buf) { free(req); return -1; }
-    req->closing = 0;
-    req->next = NULL;
-    req->next_free = NULL;
-
-    // insert to handles list (single-threaded)
-    req->next = loop->handles;
-    loop->handles = req;
-
-    // 唤醒主循环以更新 fdset（写 pipe）
-    ssize_t r;
-    uint8_t one = 1;
-    do { r = write(loop->wake_w, &one, 1); } while (r == -1 && errno == EINTR);
-    (void)r;
-
-    return 0;
-}
-
-int loop_unregister_handle(void *handle, bool close_socket) {
-    if (!handle) return -1;
-    loop_t *loop = loop_get();
-    if (!loop) return -1;
-    int fd = (int)(intptr_t)handle;
-
-    handle_req_t **pp = &loop->handles;
-    handle_req_t *found = NULL;
-    while (*pp) {
-        if ((*pp)->fd == fd) {
-            found = *pp;
-            *pp = (*pp)->next;
-            break;
-        }
-        pp = &(*pp)->next;
-    }
-    if (!found) {
-        return -1;
-    }
-
-    // mark closing and add to to_free list (主循环会释放)
-    found->closing = 1;
-    found->next_free = loop->to_free;
-    loop->to_free = found;
-
-    // close fd 以确保 select 不再报告它
-    if (close_socket) close(fd);
-
-    // 唤醒主循环以尽快回收
-    ssize_t r;
-    uint8_t one = 1;
-    do { r = write(loop->wake_w, &one, 1); } while (r == -1 && errno == EINTR);
-    (void)r;
-
-    return 0;
-}
-
-// -------------------- 定时器 API --------------------
+/* -------------------- soon tasks & timers -------------------- */
 
 timer_id_t loop_add_timer(uint64_t when_ms, loop_cb_t cb, void *userdata) {
-    if (!cb) return -1;
+    if (!cb) return 0;
     loop_t *loop = loop_get();
-    if (!loop) return -1;
-    timer_req_t *req = calloc(1, sizeof(timer_req_t));
-    if (!req) return -1;
-    req->cb = cb;
-    req->userdata = userdata;
-    req->id = (timer_id_t)++loop->next_timer_id;
-    req->expire_ms = now_ms() + when_ms;
-    req->cancelled = 0;
-
-    heap_push(loop, req);
-
-    // 唤醒 select 重新计算超时
-    ssize_t r;
-    uint8_t one = 1;
-    do { r = write(loop->wake_w, &one, 1); } while (r == -1 && errno == EINTR);
-    (void)r;
-
-    return req->id;
+    timer_req_t *t = calloc(1, sizeof(timer_req_t));
+    t->cb = cb; t->userdata = userdata;
+    t->id = (timer_id_t)++loop->next_timer_id;
+    t->expire_ms = when_ms;
+    t->cancelled = 0;
+    heap_push(loop, t);
+    /* wake select */
+    if (loop->wake_w >= 0) { char b = 1; ssize_t ignored = write(loop->wake_w, &b, 1); (void)ignored; }
+    return t->id;
 }
 
 int loop_cancel_timer(timer_id_t id) {
     loop_t *loop = loop_get();
-    if (!loop) return -1;
-    for (int i = 0; i < loop->heap_size; i++) {
-        if (loop->heap[i]->id == id) {
-            loop->heap[i]->cancelled = 1;
-            // wake up to let loop re-evaluate
-            ssize_t r;
-            uint8_t one = 1;
-            do { r = write(loop->wake_w, &one, 1); } while (r == -1 && errno == EINTR);
-            (void)r;
-            return 0;
-        }
+    for (int i = 0; i < loop->heap_size; ++i) {
+        if (loop->heap[i]->id == id) { loop->heap[i]->cancelled = 1; return 0; }
     }
     return -1;
 }
 
-// -------------------- 主循环内部辅助 --------------------
+void loop_call_soon(loop_cb_t cb, void *userdata) {
+    if (!cb) return;
+    loop_t *loop = loop_get();
+    soon_task_t *t = malloc(sizeof(soon_task_t));
+    t->cb = cb; t->userdata = userdata; t->next = NULL;
+    if (!loop->soon_tail) loop->soon_head = loop->soon_tail = t; else { loop->soon_tail->next = t; loop->soon_tail = t; }
+    if (loop->wake_w >= 0) { char b = 1; ssize_t ignored = write(loop->wake_w, &b, 1); (void)ignored; }
+}
 
-static void process_posted(loop_t *loop) {
-    posted_event_t *p = loop->posted_head;
-    loop->posted_head = loop->posted_tail = NULL;
-
-    while (p) {
-        posted_event_t *next = p->next;
-        if (p->cb) p->cb(loop, p->userdata);
-        free(p);
-        p = next;
+static void run_soon_tasks(loop_t *loop) {
+    while (loop->soon_head) {
+        soon_task_t *t = loop->soon_head; loop->soon_head = t->next; if (!loop->soon_head) loop->soon_tail = NULL;
+        loop_cb_t cb = t->cb; void *ud = t->userdata; free(t); if (cb) cb(loop, ud);
     }
 }
 
-static void free_pending_handles(loop_t *loop) {
-    handle_req_t *p = loop->to_free;
-    loop->to_free = NULL;
-
-    while (p) {
-        handle_req_t *next = p->next_free;
-        free(p->buf);
-        free(p);
-        p = next;
-    }
-}
-
-static void handle_select_handle_event(loop_t *loop, handle_req_t *req) {
-    if (!req) return;
-    if (req->closing) return; // 被标记为关闭，忽略
-
-    // level-triggered：尽量多读直到 EAGAIN
-    for (;;) {
-        ssize_t r = recv(req->fd, req->buf, (size_t)req->buf_len, 0);
-        if (r > 0) {
-            recv_data_t data;
-            data.userdata = req->userdata;
-            data.data = req->buf;
-            data.len = (unsigned long)r;
-            if (req->cb) req->cb(loop, &data);
-            // 继续循环读取
-            continue;
-        } else if (r == 0) {
-            // peer closed: unregister (这会标记 closing 并安排释放)
-            loop_unregister_handle((void *)(intptr_t)req->fd, false);
-            break;
-        } else {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                // no more data
-                break;
-            } else {
-                // error: unregister
-                loop_unregister_handle((void *)(intptr_t)req->fd, true);
-                break;
-            }
-        }
-    }
-}
-
-// -------------------- loop 主循环 --------------------
-
-static void loop_run_main(loop_t *loop) {
-    while (!loop->stop_flag || loop->heap_size != 0 || loop->posted_head) {
-        // 构建 fd_set
-        fd_set readfds;
-        FD_ZERO(&readfds);
-        int maxfd = -1;
-
-        // always include wake read end
-        FD_SET(loop->wake_r, &readfds);
-        if (loop->wake_r > maxfd) maxfd = loop->wake_r;
-
-        // gather handles snapshot (no lock, single-thread)
-        handle_req_t *h = loop->handles;
-        while (h) {
-            if (!h->closing) {
-                FD_SET(h->fd, &readfds);
-                if (h->fd > maxfd) maxfd = h->fd;
-            }
-            h = h->next;
-        }
-
-        // compute next timer timeout
-        int timeout_set = 0;
-        struct timeval tv;
+static void run_timers(loop_t *loop) {
+    uint64_t now = loop_time_ms();
+    while (1) {
         timer_req_t *top = heap_top(loop);
-        if (top) {
-            uint64_t now = now_ms();
-            if (top->expire_ms <= now) {
-                // 直接触发（pop）
-                timer_req_t *t = heap_pop(loop);
-                if (!t->cancelled) {
-                    loop_cb_t cb = t->cb;
-                    void *ud = t->userdata;
-                    if (cb) cb(loop, ud);
-                }
-                free(t);
-                // loop back to recompute timers and fdset
-                continue;
-            } else {
-                uint64_t diff = top->expire_ms - now;
-                if (diff > (uint64_t)INT_MAX) diff = INT_MAX;
-                tv.tv_sec = (long)(diff / 1000ULL);
-                tv.tv_usec = (long)((diff % 1000ULL) * 1000ULL);
-                timeout_set = 1;
-            }
-        }
+        if (!top) break;
+        if (top->expire_ms > now) break;
+        heap_pop(loop);
+        if (!top->cancelled) {
+            loop_cb_t cb = top->cb; void *ud = top->userdata; free(top); if (cb) cb(loop, ud);
+        } else free(top);
+    }
+}
 
-        int rv;
-        if (timeout_set) {
-            rv = select(maxfd + 1, &readfds, NULL, NULL, &tv);
-        } else {
-            rv = select(maxfd + 1, &readfds, NULL, NULL, NULL); // block indefinitely
-        }
+/* -------------------- core IO ops (post/recv/send/connect/accept) -------------------- */
 
-        if (rv < 0) {
-            if (errno == EINTR) continue;
-            perror("select");
-            break;
-        } else if (rv == 0) {
-            // timeout -> 下次循环会处理 timer（loop 顶部会处理）
-            continue;
-        }
+int loop_bind_handle(void *handle) {
+    if (!handle) return -1;
+    int fd = (int)(intptr_t)handle;
+    return set_nonblocking(fd) == 0 ? 0 : -1;
+}
 
-        // 处理 wake pipe
-        if (FD_ISSET(loop->wake_r, &readfds)) {
-            // 清空 pipe（可能写入多个字节）
-            uint8_t buf[64];
-            ssize_t r;
-            do { r = read(loop->wake_r, buf, sizeof(buf)); } while (r > 0 || (r == -1 && errno == EINTR));
-            // 处理 posted 事件 & 回收
-            process_posted(loop);
-            free_pending_handles(loop);
-        }
+loop_op_id_t loop_post_recv(void *handle, char *buf, unsigned long len, loop_io_cb_t cb, void *userdata) {
+    if (!handle || !cb || !buf || len == 0) return LOOP_INVALID_OP_ID;
+    loop_t *loop = loop_get();
+    int fd = (int)(intptr_t)handle;
+    loop_op_t *op = calloc(1, sizeof(loop_op_t));
+    if (!op) return LOOP_INVALID_OP_ID;
+    op->type = LOOP_OP_RECV; op->id = alloc_op_id(loop); op->fd = fd; op->cb = cb; op->userdata = userdata; op->cancelled = 0;
+    op->u.recv.buf = buf; op->u.recv.len = len;
+    ops_add(loop, op);
+    /* ensure non-blocking so recv won't block when polled */
+    set_nonblocking(fd);
+    /* wake select so it will include this fd */
+    if (loop->wake_w >= 0) { char b = 1; ssize_t ignored = write(loop->wake_w, &b, 1); (void)ignored; }
+    return op->id;
+}
 
-        // 处理 socket events: 遍历 handles list，检查哪几个 fd 可读
-        handle_req_t *p = loop->handles;
-        while (p) {
-            handle_req_t *next = p->next; // 保存下一个指针以免 p 被移除
-            if (!p->closing && FD_ISSET(p->fd, &readfds)) {
-                handle_select_handle_event(loop, p);
-            }
-            p = next;
-        }
+loop_op_id_t loop_post_send(void *handle, const char *buf, unsigned long len, loop_io_cb_t cb, void *userdata) {
+    if (!handle || !cb || !buf || len == 0) return LOOP_INVALID_OP_ID;
+    loop_t *loop = loop_get();
+    int fd = (int)(intptr_t)handle;
+    loop_op_t *op = calloc(1, sizeof(loop_op_t));
+    if (!op) return LOOP_INVALID_OP_ID;
+    op->type = LOOP_OP_SEND; op->id = alloc_op_id(loop); op->fd = fd; op->cb = cb; op->userdata = userdata; op->cancelled = 0;
+    op->u.send.len = len;
+    op->u.send.buf = malloc((size_t)len);
+    if (!op->u.send.buf) { free(op); return LOOP_INVALID_OP_ID; }
+    memcpy(op->u.send.buf, buf, (size_t)len);
+    ops_add(loop, op);
+    set_nonblocking(fd);
+    if (loop->wake_w >= 0) { char b = 1; ssize_t ignored = write(loop->wake_w, &b, 1); (void)ignored; }
+    return op->id;
+}
 
-        // 尝试回收待释放资源
-        free_pending_handles(loop);
+loop_op_id_t loop_connect_async(void *handle, const struct sockaddr *addr, int addrlen, loop_io_cb_t cb, void *userdata) {
+    if (!handle || !addr || !cb) return LOOP_INVALID_OP_ID;
+    loop_t *loop = loop_get();
+    int fd = (int)(intptr_t)handle;
+    /* make non-blocking and initiate connect */
+    set_nonblocking(fd);
+    int ret = connect(fd, addr, addrlen);
+    if (ret == 0) {
+        /* immediate success — we'll still post an op so callback semantics are uniform */
+    }
+    loop_op_t *op = calloc(1, sizeof(loop_op_t));
+    if (!op) return LOOP_INVALID_OP_ID;
+    op->type = LOOP_OP_CONNECT; op->id = alloc_op_id(loop); op->fd = fd; op->cb = cb; op->userdata = userdata; op->cancelled = 0;
+    op->u.conn.state = 0; /* pending */
+    if (addrlen <= (int)sizeof(op->u.conn.addr)) {
+        memcpy(&op->u.conn.addr, addr, addrlen);
+        op->u.conn.addrlen = addrlen;
+    }
+    ops_add(loop, op);
+    if (loop->wake_w >= 0) { char b = 1; ssize_t ignored = write(loop->wake_w, &b, 1); (void)ignored; }
+    return op->id;
+}
+
+loop_op_id_t loop_accept_async(void *listen_handle, void **accept_handle_out, loop_io_cb_t cb, void *userdata) {
+    if (!listen_handle || !cb) return LOOP_INVALID_OP_ID;
+    loop_t *loop = loop_get();
+    int listen_fd = (int)(intptr_t)listen_handle;
+    loop_op_t *op = calloc(1, sizeof(loop_op_t));
+    if (!op) return LOOP_INVALID_OP_ID;
+    op->type = LOOP_OP_ACCEPT; op->id = alloc_op_id(loop); op->fd = listen_fd; op->cb = cb; op->userdata = userdata; op->cancelled = 0;
+    op->u.acc.accept_fd = -1;
+    ops_add(loop, op);
+    set_nonblocking(listen_fd);
+    if (loop->wake_w >= 0) { char b = 1; ssize_t ignored = write(loop->wake_w, &b, 1); (void)ignored; }
+    /* Note: POSIX accept returns accepted fd only at accept time; we don't create accept socket here. */
+    (void)accept_handle_out; /* unused in this implementation */
+    return op->id;
+}
+
+int loop_cancel_op(loop_op_id_t id) {
+    if (id == LOOP_INVALID_OP_ID) return -1;
+    loop_t *loop = loop_get();
+    loop_op_t *op = ops_find_by_id(loop, id);
+    if (!op) return -1;
+    /* mark cancelled logically; don't free here to avoid races with select iteration */
+    op->cancelled = 1;
+    /* wake select so it can clean up promptly */
+    if (loop->wake_w >= 0) { char b = 1; ssize_t ignored = write(loop->wake_w, &b, 1); (void)ignored; }
+    return 0;
+}
+
+/* -------------------- completion handling -------------------- */
+
+static void complete_and_free_op(loop_t *loop, loop_op_t *op, int err, unsigned long bytes, char *rbuf) {
+    /* remove from list */
+    ops_remove(loop, op);
+
+    if (op->cancelled) {
+        /* logical cancellation: do not invoke callback; close accepted fd if any to avoid leak */
+        if (op->type == LOOP_OP_ACCEPT && bytes != 0) {
+            int afd = (int)bytes;
+            close(afd);
+        }
+        if (op->type == LOOP_OP_SEND && op->u.send.buf) free(op->u.send.buf);
+        free(op);
+        return;
     }
 
-    // loop stop: cleanup pending frees
-    free_pending_handles(loop);
+    recv_data_t r;
+    recv_data_t *rptr = NULL;
+    if (op->type == LOOP_OP_RECV) {
+        r.userdata = op->userdata;
+        r.data = rbuf ? rbuf : op->u.recv.buf;
+        r.len = bytes;
+        rptr = &r;
+    }
+
+    if (op->cb) op->cb(loop, op->userdata, op->type, err, bytes, rptr);
+
+    if (op->type == LOOP_OP_SEND) {
+        if (op->u.send.buf) free(op->u.send.buf);
+    }
+
+    free(op);
 }
 
-// -------------------- loop 控制 --------------------
+/* -------------------- main loop run_once & run -------------------- */
 
-loop_t *loop_create_sub() {
-    loop_t *loop = calloc(1, sizeof(loop_t));
-    if (!loop) return NULL;
+static int any_pending_ops(loop_t *loop) { return loop->ops_head != NULL; }
 
-    int pipefd[2];
-    if (pipe(pipefd) != 0) { free(loop); return NULL; }
-    // set non-blocking read end to avoid blocking on read
-    int flags = fcntl(pipefd[0], F_GETFL, 0);
-    if (flags != -1) fcntl(pipefd[0], F_SETFL, flags | O_NONBLOCK);
-#ifdef F_SETFD
-    int fdflags = fcntl(pipefd[0], F_GETFD, 0);
-    if (fdflags != -1) fcntl(pipefd[0], F_SETFD, fdflags | FD_CLOEXEC);
-    fdflags = fcntl(pipefd[1], F_GETFD, 0);
-    if (fdflags != -1) fcntl(pipefd[1], F_SETFD, fdflags | FD_CLOEXEC);
-#endif
+static void run_pending_soon_and_timers(loop_t *loop) { run_soon_tasks(loop); run_timers(loop); }
 
-    loop->wake_r = pipefd[0];
-    loop->wake_w = pipefd[1];
-
-    loop->next_timer_id = 1;
-    loop->stop_flag = 0;
-    loop->heap = NULL;
-    loop->heap_size = loop->heap_cap = 0;
-    loop->handles = NULL;
-    loop->to_free = NULL;
-    loop->posted_head = loop->posted_tail = NULL;
-
-    return loop;
+static int calc_next_timeout_ms_for_select(loop_t *loop) {
+    timer_req_t *top = heap_top(loop);
+    if (!top) return -1; /* no timeout => wait indefinitely */
+    uint64_t now = loop_time_ms();
+    if (top->expire_ms <= now) return 0;
+    uint64_t diff = top->expire_ms - now;
+    if (diff > 1000000ULL) return -1;
+    return (int)diff;
 }
 
-void loop_stop_callback(future_t *_, void *userdata) {
-    loop_stop();
+static void loop_run_once() {
+    loop_t *loop = loop_get();
+    run_pending_soon_and_timers(loop);
+
+    /* prepare fd sets */
+    fd_set readfds, writefds;
+    FD_ZERO(&readfds); FD_ZERO(&writefds);
+    int maxfd = -1;
+
+    /* always monitor wake pipe read end */
+    if (loop->wake_r >= 0) { FD_SET(loop->wake_r, &readfds); if (loop->wake_r > maxfd) maxfd = loop->wake_r; }
+
+    /* iterate ops and prepare sets */
+    loop_op_t *p = loop->ops_head;
+    while (p) {
+        if (p->cancelled) { p = p->next; continue; }
+        switch (p->type) {
+            case LOOP_OP_RECV:
+                FD_SET(p->fd, &readfds);
+                if (p->fd > maxfd) maxfd = p->fd;
+                break;
+            case LOOP_OP_SEND:
+                FD_SET(p->fd, &writefds);
+                if (p->fd > maxfd) maxfd = p->fd;
+                break;
+            case LOOP_OP_CONNECT:
+                /* monitor writability to detect connect completion */
+                FD_SET(p->fd, &writefds);
+                if (p->fd > maxfd) maxfd = p->fd;
+                break;
+            case LOOP_OP_ACCEPT:
+                FD_SET(p->fd, &readfds);
+                if (p->fd > maxfd) maxfd = p->fd;
+                break;
+            default:
+                break;
+        }
+        p = p->next;
+    }
+
+    /* calc timeout */
+    int timeout_ms = calc_next_timeout_ms_for_select(loop);
+    struct timeval tvbuf, *tv = NULL;
+    if (timeout_ms >= 0) { tvbuf.tv_sec = timeout_ms / 1000; tvbuf.tv_usec = (timeout_ms % 1000) * 1000; tv = &tvbuf; }
+
+    int nfds = select(maxfd + 1, &readfds, &writefds, NULL, tv);
+
+    /* after wake, run soon/timers again */
+    run_pending_soon_and_timers(loop);
+
+    if (nfds < 0) {
+        if (errno == EINTR) return;
+        return;
+    }
+    if (nfds == 0) {
+        /* timeout — timers already run above */
+        return;
+    }
+
+    /* handle wake pipe */
+    if (loop->wake_r >= 0 && FD_ISSET(loop->wake_r, &readfds)) {
+        char buf[64]; while (read(loop->wake_r, buf, sizeof(buf)) > 0) {}
+        /* fall through to process other fds */
+    }
+
+    /* iterate ops again to handle ready fds; collect completed ops into a small list to avoid modifying while iterating */
+    loop_op_t *cur = loop->ops_head;
+    loop_op_t *next;
+    while (cur) {
+        next = cur->next;
+        if (cur->cancelled) {
+            /* clean cancelled op (no callback) */
+            ops_remove(loop, cur);
+            if (cur->type == LOOP_OP_SEND && cur->u.send.buf) free(cur->u.send.buf);
+            free(cur);
+            cur = next; continue;
+        }
+        if (cur->type == LOOP_OP_RECV && FD_ISSET(cur->fd, &readfds)) {
+            ssize_t r = recv(cur->fd, cur->u.recv.buf, cur->u.recv.len, 0);
+            if (r < 0) {
+                int err = errno;
+                if (err == EAGAIN || err == EWOULDBLOCK) { /* try later */ }
+                else {
+                    complete_and_free_op(loop, cur, err, 0, NULL);
+                }
+            } else {
+                unsigned long bytes = (unsigned long)r;
+                complete_and_free_op(loop, cur, 0, bytes, NULL);
+            }
+        } else if (cur->type == LOOP_OP_SEND && FD_ISSET(cur->fd, &writefds)) {
+            ssize_t s = send(cur->fd, cur->u.send.buf, cur->u.send.len, 0);
+            if (s < 0) {
+                int err = errno;
+                if (err == EAGAIN || err == EWOULDBLOCK) { /* try later */ }
+                else {
+                    complete_and_free_op(loop, cur, err, 0, NULL);
+                }
+            } else {
+                unsigned long bytes = (unsigned long)s;
+                complete_and_free_op(loop, cur, 0, bytes, NULL);
+            }
+        } else if (cur->type == LOOP_OP_CONNECT && FD_ISSET(cur->fd, &writefds)) {
+            int err = 0; socklen_t len = sizeof(err);
+            if (getsockopt(cur->fd, SOL_SOCKET, SO_ERROR, &err, &len) < 0) {
+                int e = errno;
+                complete_and_free_op(loop, cur, e, 0, NULL);
+            } else {
+                if (err != 0) {
+                    complete_and_free_op(loop, cur, err, 0, NULL);
+                } else {
+                    /* success */
+                    complete_and_free_op(loop, cur, 0, 0, NULL);
+                }
+            }
+        } else if (cur->type == LOOP_OP_ACCEPT && FD_ISSET(cur->fd, &readfds)) {
+            struct sockaddr_storage addr; socklen_t alen = sizeof(addr);
+            int afd = accept(cur->fd, (struct sockaddr*)&addr, &alen);
+            if (afd < 0) {
+                int e = errno;
+                if (e == EAGAIN || e == EWOULDBLOCK) { /* nothing */ }
+                else {
+                    complete_and_free_op(loop, cur, e, 0, NULL);
+                }
+            } else {
+                /* accepted one connection; set non-blocking and deliver fd in bytes field */
+                set_nonblocking(afd);
+                complete_and_free_op(loop, cur, 0, (unsigned long)afd, NULL);
+            }
+        }
+        cur = next;
+    }
 }
 
 void loop_run(task_t *task) {
     loop_t *loop = loop_get();
-    if (!loop) return;
-
-    // 将 task 的完成与 stop 关联（如果有类似 future 的实现，可在外部实现）
-    if (task && task->future) {
-        future_add_done_callback(task->future, loop_stop_callback, loop);
-    }
-
-    // 启动任务（同步）
     if (task) task_run(task);
+    while (!loop->stop_flag || loop->heap_size != 0 || loop->soon_head != NULL || any_pending_ops(loop)) {
+        loop_run_once();
+    }
+}
 
-    // 进入主循环（单线程）
-    loop_run_main(loop);
+/* -------------------- create / destroy / time -------------------- */
+
+loop_t *loop_create_sub() {
+    loop_t *loop = calloc(1, sizeof(loop_t));
+    if (!loop) return NULL;
+    loop->next_op_id = 0;
+    loop->next_timer_id = 0;
+    loop->heap = NULL; loop->heap_size = 0; loop->heap_cap = 0;
+    loop->soon_head = loop->soon_tail = NULL;
+    loop->ops_head = NULL;
+    loop->stop_flag = 0;
+    int pipefd[2];
+    if (pipe(pipefd) < 0) {
+        free(loop); return NULL;
+    }
+    loop->wake_r = pipefd[0]; loop->wake_w = pipefd[1];
+    /* set pipe ends non-blocking */
+    set_nonblocking(loop->wake_r);
+    set_nonblocking(loop->wake_w);
+    return loop;
 }
 
 void loop_stop() {
     loop_t *loop = loop_get();
-    if (!loop) return;
     loop->stop_flag = 1;
-    // 唤醒 select
-    ssize_t r;
-    uint8_t one = 1;
-    r = write(loop->wake_w, &one, 1);
-    (void)r;
+    if (loop->wake_w >= 0) { char b = 1; ssize_t ignored = write(loop->wake_w, &b, 1); (void)ignored; }
 }
 
 void loop_destroy() {
-    loop_t *loop = loop_get();
-    if (!loop) return;
-
-    // 确保停止
+    loop_t *loop = loop_get(); if (!loop) return;
     loop_stop();
-
-    // close wake pipe
-    close(loop->wake_r);
-    close(loop->wake_w);
-
-    // 释放堆上的定时器
-    for (int i = 0; i < loop->heap_size; i++) {
-        free(loop->heap[i]);
+    /* free ops */
+    loop_op_t *op = loop->ops_head;
+    while (op) {
+        loop_op_t *n = op->next;
+        if (op->type == LOOP_OP_SEND && op->u.send.buf) free(op->u.send.buf);
+        free(op);
+        op = n;
     }
+    /* free timers */
+    for (int i = 0; i < loop->heap_size; ++i) free(loop->heap[i]);
     free(loop->heap);
-    loop->heap = NULL;
-    loop->heap_size = loop->heap_cap = 0;
-
-    // 清空 active handles（与 Windows 保持一致：关闭 fd 并释放）
-    handle_req_t *h = loop->handles;
-    while (h) {
-        handle_req_t *next = h->next;
-        close(h->fd);
-        free(h->buf);
-        free(h);
-        h = next;
-    }
-    loop->handles = NULL;
-
-    // 清空 to_free
-    handle_req_t *f = loop->to_free;
-    while (f) {
-        handle_req_t *next = f->next_free;
-        free(f->buf);
-        free(f);
-        f = next;
-    }
-    loop->to_free = NULL;
-
-    // 清空 posted
-    posted_event_t *p = loop->posted_head;
-    while (p) {
-        posted_event_t *next = p->next;
-        free(p);
-        p = next;
-    }
-    loop->posted_head = loop->posted_tail = NULL;
-
+    /* free soon tasks */
+    soon_task_t *s = loop->soon_head;
+    while (s) { soon_task_t *n = s->next; free(s); s = n; }
+    if (loop->wake_r >= 0) close(loop->wake_r);
+    if (loop->wake_w >= 0) close(loop->wake_w);
     free(loop);
-
-    // clear thread-local pointer so loop_create() can recreate later
     current_loop = NULL;
 }
