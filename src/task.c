@@ -40,13 +40,25 @@ void _task_run_cb(loop_t *_, void *userdata);
 void _task_run_cb_future(future_t *_, void *userdata) {
     _task_run_cb(NULL, userdata);
 }
+
 void _task_run_cb(loop_t *_, void *userdata) {
     task_t *task = userdata;
-    future_t *fut = gen_next(task->gen);
+    future_t *fut = NULL;
+    while (!fut && !gen_finished(task->gen)) {
+        fut = gen_next(task->gen);
+        if (task->gen->ctx.yield_from_returned) {
+            gen_t *inner = task->gen;
+            while (inner->ctx.sub_gen) {
+                inner = inner->ctx.sub_gen;
+            }
+            future_done(((task_t *)(inner->ctx.userdata))->future, task->gen->ctx.yield_from_val);
+        }
+    }
     if (gen_finished(task->gen)) {
-        future_done(task->future, fut);
+        future_done(task->future, task->gen->ctx.ret_val);
         return;
     }
+
     future_add_done_callback(fut, _task_run_cb_future, task);
 }
 

@@ -90,7 +90,6 @@ static void on_recv(
     if (err != 0 || bytes == 0) {
         printf("recv finished\n");
         free(recv->data);
-        loop_stop();
         return;
     }
 

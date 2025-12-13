@@ -490,7 +490,10 @@ static void loop_run_once() {
 void loop_run(task_t *task) {
     loop_t *loop = loop_get();
     if (task) task_run(task);
-    while (!loop->stop_flag || loop->heap_size != 0 || loop->soon_head != NULL || any_pending_ops(loop)) {
+    while (!loop->stop_flag && 
+           (loop->heap_size != 0 || 
+            loop->soon_head != NULL || 
+            any_pending_ops(loop))) {
         loop_run_once();
     }
 }

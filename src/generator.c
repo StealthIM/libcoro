@@ -22,19 +22,24 @@ void gen_destroy(gen_t *gen) {
 void *gen_send(gen_t *gen, void *arg) {
     if (!gen) return NULL;
     if (gen_finished(gen)) return NULL;
+    gen->ctx.yield_from_val = NULL;
+    gen->ctx.yield_from_returned = 0;
     if (gen_in_yield_from(gen)) {
+        void *ret = gen_send(gen->ctx.sub_gen, arg);
         if (!gen_finished(gen->ctx.sub_gen)) {
-            return gen_send(gen->ctx.sub_gen, NULL);
+            return ret;
         }
-        gen_destroy(gen->ctx.sub_gen);
+        gen->ctx.yield_from_val = gen->ctx.sub_gen->ctx.ret_val;
+        gen->ctx.yield_from_returned = 1;
         gen->ctx.sub_gen = NULL;
         gen->ctx.state = GEN_STATE_MIDDLE;
+        return NULL;
     }
     gen_ret_t ret = gen->func(&gen->ctx, arg);
     if (ret == GEN_YIELD_FROM) {
-        return gen_send(gen->ctx.sub_gen, NULL);  // Do the first step of the sub-generator
+        return gen_send(gen->ctx.sub_gen, gen->ctx.sub_gen->ctx.userdata);  // Do the first step of the sub-generator
     }
-    return gen->ctx.ret_val;
+    return gen->ctx.yield_val;
 }
 
 void gen_close(gen_t *gen) {

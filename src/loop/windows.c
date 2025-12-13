@@ -568,7 +568,10 @@ static void loop_run_once() {
 void loop_run(task_t *task) {
     loop_t *loop = loop_get();
     task_run(task);
-    while (!loop->stop_flag || loop->heap_size!=0) {
+    while (!loop->stop_flag && 
+           (loop->heap_size != 0 || 
+            loop->soon_head != NULL || 
+            loop->ops_head != NULL)) {
         loop_run_once();
     }
 }

@@ -19,12 +19,16 @@ typedef enum {
 } gen_ret_t;
 
 typedef struct gen_s gen_t;
+typedef struct future_s future_t;
 
 typedef struct gen_ctx_s {
     int lineno;
     gen_state_t state;
     void *stack_vars;
     void *userdata;
+    void *yield_val;
+    void *yield_from_val;
+    int yield_from_returned;
     void *ret_val;
     gen_t *sub_gen;
 } gen_ctx_t;
@@ -56,7 +60,7 @@ void gen_destroy(gen_t *gen);
 #define gen_yield(val) \
             __ctx->lineno = __LINE__; \
             __ctx->state = GEN_STATE_MIDDLE; \
-            __ctx->ret_val = (void*)(val); \
+            __ctx->yield_val = (future_t*)(val); \
             return GEN_NORMAL; \
         case __LINE__:;
 #define _CONNECT1(x,y) x##y
@@ -71,12 +75,24 @@ void gen_destroy(gen_t *gen);
             gen_destroy(__ctx->sub_gen); \
             return GEN_NORMAL; \
         case __LINE__:
-#define gen_yield_from_task(task) gen_yield_from(task->gen)
+#define gen_yield_from_task(task) \
+        __ctx->sub_gen = (task->gen); \
+        __ctx->userdata = (task); \
+        __ctx->state = GEN_STATE_YIELD_FROM; \
+        __ctx->lineno = __LINE__; \
+        return GEN_YIELD_FROM; \
+    case -__LINE__: \
+        gen_close(__ctx->sub_gen); \
+        gen_destroy(__ctx->sub_gen); \
+        return GEN_NORMAL; \
+    case __LINE__:
+#define gen_yield_from_val() __ctx->yield_from_val
 #define gen_cleanup() \
         case -1:
 #define gen_end(val) \
             __ctx->state = GEN_STATE_END; \
-            __ctx->ret_val = (void*)(val); \
+            __ctx->yield_val = NULL; \
+            __ctx->ret_val = (void*)(val);; \
             return GEN_NORMAL; \
         default: \
             return GEN_NORMAL; \
@@ -84,7 +100,8 @@ void gen_destroy(gen_t *gen);
     return -1;
 #define gen_return(val) \
     __ctx->state = GEN_STATE_END; \
-    __ctx->ret_val = (void*)(val); \
+    __ctx->yield_val = NULL; \
+    __ctx->ret_val = (void*)(val);; \
     return GEN_NORMAL; \
 
 #define gen_for(type, val, gen) \
