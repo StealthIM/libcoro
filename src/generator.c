@@ -24,6 +24,8 @@ void *gen_send(gen_t *gen, void *arg) {
     if (gen_finished(gen)) return NULL;
     gen->ctx.yield_from_val = NULL;
     if (gen_in_yield_from(gen)) {
+        process_yield_from:
+
         void *ret = gen_send(gen->ctx.sub_gen, arg);
         if (!gen_finished(gen->ctx.sub_gen)) {
             return ret;
@@ -37,7 +39,9 @@ void *gen_send(gen_t *gen, void *arg) {
     }
     gen_ret_t ret = gen->func(&gen->ctx, arg);
     if (ret == GEN_YIELD_FROM) {
-        return gen_send(gen->ctx.sub_gen, gen->ctx.sub_gen->ctx.userdata);  // Do the first step of the sub-generator
+        arg = gen->ctx.sub_gen->ctx.userdata;
+        // Do the first step of the sub generator
+        goto process_yield_from;
     }
     return gen->ctx.yield_val;
 }

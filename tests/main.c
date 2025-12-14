@@ -4,6 +4,7 @@
 
 int test_loop();
 int test_nested_task();
+int test_empty_task();
 
 int main(int argc, char** argv) {
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -13,6 +14,7 @@ int main(int argc, char** argv) {
     }
     if (strcmp(argv[1], "loop") == 0) return test_loop();
     if (strcmp(argv[1], "nested_task") == 0) return test_nested_task();
+    if (strcmp(argv[1], "empty_task") == 0) return test_empty_task();
 
     printf("Unknown test: %s\n", argv[1]);
     return 1;

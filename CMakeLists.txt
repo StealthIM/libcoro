@@ -46,9 +46,11 @@ add_executable(libcoro_tests
         tests/main.c
         tests/test_loop.c
         tests/test_nested_task.c
+        tests/test_empty_task.c
 )
 target_link_libraries(libcoro_tests PRIVATE libcoro)
 
 enable_testing()
 add_test(NAME test_loop COMMAND libcoro_tests loop)
 add_test(NAME test_nested_task COMMAND libcoro_tests nested_task)
+add_test(NAME test_empty_task COMMAND libcoro_tests empty_task)
