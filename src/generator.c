@@ -23,17 +23,17 @@ void *gen_send(gen_t *gen, void *arg) {
     if (!gen) return NULL;
     if (gen_finished(gen)) return NULL;
     gen->ctx.yield_from_val = NULL;
-    gen->ctx.yield_from_returned = 0;
     if (gen_in_yield_from(gen)) {
         void *ret = gen_send(gen->ctx.sub_gen, arg);
         if (!gen_finished(gen->ctx.sub_gen)) {
             return ret;
         }
         gen->ctx.yield_from_val = gen->ctx.sub_gen->ctx.ret_val;
-        gen->ctx.yield_from_returned = 1;
+        if (gen->ctx.yield_from_callback) {
+            gen->ctx.yield_from_callback(&gen->ctx);
+        }
         gen->ctx.sub_gen = NULL;
         gen->ctx.state = GEN_STATE_MIDDLE;
-        return NULL;
     }
     gen_ret_t ret = gen->func(&gen->ctx, arg);
     if (ret == GEN_YIELD_FROM) {

@@ -47,6 +47,7 @@ void future_reject(future_t *fut, void *value);
 void future_cancel(future_t *fut);
 
 void future_add_done_callback(future_t *fut, future_cb_t cb, void *userdata);
+void future_remove_done_callback(future_t *fut, future_cb_t cb);
 
 future_t *async_sleep(uint64_t ms);
 

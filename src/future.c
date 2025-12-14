@@ -80,6 +80,28 @@ void future_add_done_callback(future_t *fut, future_cb_t cb, void *userdata) {
     }
 }
 
+void future_remove_done_callback(future_t *fut, future_cb_t cb) {
+    if (!fut || !fut->callbacks) {
+        return;
+    }
+    future_cb_node_t *cur = fut->callbacks, *last = fut->callbacks;
+    if (cur->cb == cb) {
+        fut->callbacks = cur->next;
+        free(cur);
+        return;
+    }
+    cur = cur->next;
+    while (cur) {
+        if (cur->cb == cb) {
+            last->next = cur->next;
+            free(cur);
+            return;
+        }
+        last = cur;
+        cur = cur->next;
+    }
+}
+
 void sleep_cb(loop_t *_, void *userdata) {
     future_t *fut = userdata;
     if (fut) {

@@ -12,6 +12,11 @@ void task_destroy_sub(future_t *fut, void *task) {
     loop_call_soon(task_destroy_sub_sub, task);
 }
 
+static void yield_from_callback(gen_ctx_t *ctx) {
+    task_t *task = ctx->userdata;
+    future_done(task->future, ctx->yield_from_val);
+}
+
 task_t *task_create(gen_t *gen) {
     task_t *t = calloc(1, sizeof(task_t));
     if (!t) return NULL;
@@ -20,11 +25,16 @@ task_t *task_create(gen_t *gen) {
         free(t);
         return NULL;
     }
+    gen->ctx.yield_from_callback = yield_from_callback;
     t->gen = gen;
     // This callback will be called first, but the following callbacks might use this task
     // So we have to delay the actual destruction to the next loop iteration
     future_add_done_callback(t->future, task_destroy_sub, t);
     return t;
+}
+
+void task_remove_auto_destroy(task_t *task) {
+    future_remove_done_callback(task->future, task_destroy_sub);
 }
 
 void task_destroy(task_t *task) {
@@ -44,16 +54,7 @@ void _task_run_cb_future(future_t *_, void *userdata) {
 void _task_run_cb(loop_t *_, void *userdata) {
     task_t *task = userdata;
     future_t *fut = NULL;
-    while (!fut && !gen_finished(task->gen)) {
-        fut = gen_next(task->gen);
-        if (task->gen->ctx.yield_from_returned) {
-            gen_t *inner = task->gen;
-            while (inner->ctx.sub_gen) {
-                inner = inner->ctx.sub_gen;
-            }
-            future_done(((task_t *)(inner->ctx.userdata))->future, task->gen->ctx.yield_from_val);
-        }
-    }
+    fut = gen_next(task->gen);
     if (gen_finished(task->gen)) {
         future_done(task->future, task->gen->ctx.ret_val);
         return;

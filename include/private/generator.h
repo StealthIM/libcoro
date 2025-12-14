@@ -20,6 +20,10 @@ typedef enum {
 
 typedef struct gen_s gen_t;
 typedef struct future_s future_t;
+typedef struct gen_ctx_s gen_ctx_t;
+
+typedef gen_ret_t (gen_func)(gen_ctx_t *ctx, void *arg);
+typedef void (yield_from_returned_callback)(gen_ctx_t *ctx);
 
 typedef struct gen_ctx_s {
     int lineno;
@@ -28,12 +32,10 @@ typedef struct gen_ctx_s {
     void *userdata;
     void *yield_val;
     void *yield_from_val;
-    int yield_from_returned;
+    yield_from_returned_callback *yield_from_callback;
     void *ret_val;
     gen_t *sub_gen;
 } gen_ctx_t;
-
-typedef gen_ret_t (gen_func)(gen_ctx_t *ctx, void *arg);
 
 typedef struct gen_s {
     gen_ctx_t ctx;
