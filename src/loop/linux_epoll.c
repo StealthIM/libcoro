@@ -20,6 +20,7 @@
 #include <time.h>
 
 #include "task.h"
+#include "offload.h"
 
 /* thread-local current loop (matches header extern __thread declaration) */
 __thread loop_t *current_loop = NULL;
@@ -89,6 +90,9 @@ struct loop_s {
 
     /* active ops linked list (for cancel lookup) */
     loop_op_t *ops_head;
+
+    /* generic offload thread pool (async DNS 等阻塞调用) */
+    struct offload_pool_s *offload;
 
     /* per-fd reference count of registered events (to compute epoll interest) */
     /* We'll maintain op list and recompute epoll interest when ops change. */
@@ -693,6 +697,10 @@ static void loop_run_once() {
         handle_fd_events(loop, fd, ev);
     }
 
+    /* Drain any offload completions (worker threads may have woken us via eventfd).
+       future_done here runs on the loop thread, so it may schedule soon tasks. */
+    offload_drain_completions(loop->offload);
+
     /* After processing events, run soon tasks and timers again */
     run_pending_soon_and_timers(loop);
 }
@@ -703,7 +711,8 @@ void loop_run(task_t *task) {
     while (!loop->stop_flag &&
            (loop->heap_size != 0 ||
             loop->soon_head != NULL ||
-            loop->ops_head != NULL)) {
+            loop->ops_head != NULL ||
+            offload_has_pending(loop->offload))) {
         loop_run_once();
     }
     // Drain any microtasks still queued at exit (e.g. task/future teardown
@@ -745,6 +754,7 @@ loop_t *loop_create_sub() {
     loop->soon_head = loop->soon_tail = NULL;
     loop->ops_head = NULL;
     loop->stop_flag = 0;
+    loop->offload = offload_pool_create(loop);
     return loop;
 }
 
@@ -757,11 +767,26 @@ void loop_stop() {
     write(loop->event_fd, &one, sizeof(one));
 }
 
+/* 线程安全:eventfd 的 write 可从任意线程调用。 */
+void loop_wake(loop_t *loop) {
+    if (!loop) return;
+    uint64_t one = 1;
+    write(loop->event_fd, &one, sizeof(one));
+}
+
+struct offload_pool_s *loop_get_offload(loop_t *loop) {
+    return loop ? loop->offload : NULL;
+}
+
 void loop_destroy() {
     loop_t *loop = loop_get();
     if (!loop) return;
 
     loop_stop();
+
+    /* shut down worker pool first: joins workers, drains残余 completions */
+    offload_pool_destroy(loop->offload);
+    loop->offload = NULL;
 
     /* cancel and free pending ops */
     loop_op_t *op = loop->ops_head;

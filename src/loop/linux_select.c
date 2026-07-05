@@ -1,4 +1,5 @@
 #include "loop.h"
+#include "offload.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -74,6 +75,9 @@ struct loop_s {
     /* wake pipe to interrupt select */
     int wake_r;
     int wake_w;
+
+    /* generic offload thread pool */
+    struct offload_pool_s *offload;
 };
 
 /* -------------------- utilities -------------------- */
@@ -485,6 +489,9 @@ static void loop_run_once() {
         }
         cur = next;
     }
+
+    /* drain offload completions (worker threads woke us via wake pipe) */
+    offload_drain_completions(loop->offload);
 }
 
 void loop_run(task_t *task) {
@@ -493,7 +500,8 @@ void loop_run(task_t *task) {
     while (!loop->stop_flag && 
            (loop->heap_size != 0 || 
             loop->soon_head != NULL || 
-            any_pending_ops(loop))) {
+            any_pending_ops(loop) ||
+            offload_has_pending(loop->offload))) {
         loop_run_once();
     }
 }
@@ -517,6 +525,7 @@ loop_t *loop_create_sub() {
     /* set pipe ends non-blocking */
     set_nonblocking(loop->wake_r);
     set_nonblocking(loop->wake_w);
+    loop->offload = offload_pool_create(loop);
     return loop;
 }
 
@@ -526,9 +535,23 @@ void loop_stop() {
     if (loop->wake_w >= 0) { char b = 1; ssize_t ignored = write(loop->wake_w, &b, 1); (void)ignored; }
 }
 
+/* 线程安全:pipe write 可从任意线程调用。 */
+void loop_wake(loop_t *loop) {
+    if (!loop || loop->wake_w < 0) return;
+    char b = 1;
+    ssize_t ignored = write(loop->wake_w, &b, 1);
+    (void)ignored;
+}
+
+struct offload_pool_s *loop_get_offload(loop_t *loop) {
+    return loop ? loop->offload : NULL;
+}
+
 void loop_destroy() {
     loop_t *loop = loop_get(); if (!loop) return;
     loop_stop();
+    offload_pool_destroy(loop->offload);
+    loop->offload = NULL;
     /* free ops */
     loop_op_t *op = loop->ops_head;
     while (op) {

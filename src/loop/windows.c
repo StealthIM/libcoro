@@ -9,6 +9,7 @@
 #include <assert.h>
 
 #include "task.h"
+#include "offload.h"
 
 #pragma comment(lib, "ws2_32.lib")
 
@@ -87,6 +88,9 @@ struct loop_s {
 
     /* active ops linked list (for cancel lookup) */
     struct loop_op_s *ops_head;
+
+    /* generic offload thread pool */
+    struct offload_pool_s *offload;
 
     /* extension ptrs */
     LPFN_CONNECTEX lpConnectEx;
@@ -535,6 +539,9 @@ static void loop_run_once() {
     /* After wake, first run timers/soon again in case wake came for them */
     run_pending_soon_and_timers(loop);
 
+    /* drain offload completions (worker threads woke us via PostQueuedCompletionStatus) */
+    offload_drain_completions(loop->offload);
+
     if (!ov) return;
 
     /* read kind field placed right after OVERLAPPED */
@@ -571,7 +578,8 @@ void loop_run(task_t *task) {
     while (!loop->stop_flag && 
            (loop->heap_size != 0 || 
             loop->soon_head != NULL || 
-            loop->ops_head != NULL)) {
+            loop->ops_head != NULL ||
+            offload_has_pending(loop->offload))) {
         loop_run_once();
     }
 }
@@ -595,6 +603,7 @@ loop_t *loop_create_sub() {
     loop->lpConnectEx = NULL;
     loop->lpAcceptEx = NULL;
     loop->stop_flag = 0;
+    loop->offload = offload_pool_create(loop);
     return loop;
 }
 
@@ -604,11 +613,24 @@ void loop_stop() {
     PostQueuedCompletionStatus(loop->iocp, 0, 0, NULL);
 }
 
+/* 线程安全:PostQueuedCompletionStatus 可从任意线程调用。 */
+void loop_wake(loop_t *loop) {
+    if (!loop) return;
+    PostQueuedCompletionStatus(loop->iocp, 0, 0, NULL);
+}
+
+struct offload_pool_s *loop_get_offload(loop_t *loop) {
+    return loop ? loop->offload : NULL;
+}
+
 void loop_destroy() {
     loop_t *loop = loop_get();
     if (!loop) return;
 
     loop_stop();
+
+    offload_pool_destroy(loop->offload);
+    loop->offload = NULL;
 
     /* cancel and free pending ops */
     loop_op_t *op = loop->ops_head;

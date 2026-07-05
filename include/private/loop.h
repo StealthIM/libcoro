@@ -41,6 +41,14 @@ int loop_cancel_timer(timer_id_t id);
 void loop_call_soon(loop_cb_t cb, void *userdata);
 uint64_t loop_time_ms();
 
+/* ========== offload 集成钩子 (每个后端各实现) ========== */
+
+/* 线程安全地唤醒 loop (可从 worker 线程调用)。 */
+void loop_wake(loop_t *loop);
+
+/* 取该 loop 的 offload 线程池句柄 (仅主线程)。 */
+struct offload_pool_s *loop_get_offload(loop_t *loop);
+
 /* ========== IO Future API ========== */
 
 typedef int32_t loop_op_id_t;

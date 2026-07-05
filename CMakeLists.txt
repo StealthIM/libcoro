@@ -12,19 +12,22 @@ list(APPEND SRC_FILES
         src/future.c
         src/generator.c
         src/task.c
+        src/offload.c
         include/private/loop.h
         include/private/future.h
         include/private/generator.h
         include/private/task.h
+        include/private/pal_thread.h
+        include/private/offload.h
 )
 
 if(LIBCORO_OS_BACKEND STREQUAL "epoll")
-    list(APPEND SRC_FILES src/loop/linux_epoll.c)
+    list(APPEND SRC_FILES src/loop/linux_epoll.c src/pal/thread_posix.c)
 elseif(LIBCORO_OS_BACKEND STREQUAL "select")
-    list(APPEND SRC_FILES src/loop/linux_select.c)
+    list(APPEND SRC_FILES src/loop/linux_select.c src/pal/thread_posix.c)
 
 elseif(LIBCORO_OS_BACKEND STREQUAL "win")
-    list(APPEND SRC_FILES src/loop/windows.c)
+    list(APPEND SRC_FILES src/loop/windows.c src/pal/thread_win.c)
 else()
     message(FATAL_ERROR "No valid OS backend selected. Please choose one of: epoll, select, win")
 endif()
@@ -40,6 +43,10 @@ target_include_directories(libcoro
 
 if(WIN32)
     target_link_libraries(libcoro PRIVATE ws2_32)
+else()
+    set(THREADS_PREFER_PTHREAD_FLAG ON)
+    find_package(Threads REQUIRED)
+    target_link_libraries(libcoro PUBLIC Threads::Threads)
 endif()
 
 add_executable(libcoro_tests
@@ -47,6 +54,7 @@ add_executable(libcoro_tests
         tests/test_loop.c
         tests/test_nested_task.c
         tests/test_empty_task.c
+        tests/test_offload.c
 )
 target_link_libraries(libcoro_tests PRIVATE libcoro)
 
@@ -54,3 +62,4 @@ enable_testing()
 add_test(NAME test_loop COMMAND libcoro_tests loop)
 add_test(NAME test_nested_task COMMAND libcoro_tests nested_task)
 add_test(NAME test_empty_task COMMAND libcoro_tests empty_task)
+add_test(NAME test_offload COMMAND libcoro_tests offload)
