@@ -10,8 +10,9 @@ extern "C" {
 
 typedef struct future_s future_t;
 typedef struct task_s {
-    future_t *future;
+    future_t *future;   /* this task's own completion future */
     gen_t *gen;
+    future_t *awaiting; /* leaf future the driver is currently blocked on; owned here */
 } task_t;
 
 task_t *task_create(gen_t *cb);

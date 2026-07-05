@@ -5,6 +5,7 @@
 void task_destroy_sub_sub(loop_t *_, void *data) {
     task_t *task = data;
     gen_destroy(task->gen);
+    future_destroy(task->future);
     free(task);
 }
 
@@ -53,13 +54,22 @@ void _task_run_cb_future(future_t *_, void *userdata) {
 
 void _task_run_cb(loop_t *_, void *userdata) {
     task_t *task = userdata;
-    future_t *fut = NULL;
-    fut = gen_next(task->gen);
+
+    // The leaf future we were blocked on. gen_next below resumes the coroutine,
+    // which reads its result; only after that returns is it safe to free.
+    future_t *prev = task->awaiting;
+    task->awaiting = NULL;
+
+    future_t *fut = gen_next(task->gen);
+
+    if (prev) future_destroy(prev);
+
     if (gen_finished(task->gen)) {
         future_done(task->future, task->gen->ctx.ret_val);
         return;
     }
 
+    task->awaiting = fut;
     future_add_done_callback(fut, _task_run_cb_future, task);
 }
 

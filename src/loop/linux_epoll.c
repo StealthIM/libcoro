@@ -395,32 +395,14 @@ loop_op_id_t loop_connect_async(void *handle, const struct sockaddr *addr, int a
 
     make_nonblocking(fd);
 
-    /* initiate non-blocking connect */
+    /* Initiate non-blocking connect. Whether it succeeds immediately (ret==0) or
+       is in progress (EINPROGRESS), we treat it uniformly: register for EPOLLOUT
+       and let handle_fd_events complete it via getsockopt(SO_ERROR). An already-
+       connected socket reports writable on the next epoll_wait, so completion
+       still flows through the loop asynchronously — never synchronously here. */
     int ret = connect(fd, addr, addrlen);
-    if (ret == 0) {
-        /* immediate connect success; emulate async completion by scheduling a soon task to call cb */
-        loop_op_t *op = calloc(1, sizeof(loop_op_t));
-        op->fd = fd;
-        op->type = LOOP_OP_CONNECT;
-        op->id = alloc_op_id(loop);
-        op->cb = cb;
-        op->userdata = userdata;
-        op->cancelled = 0;
-        ops_add(loop, op);
-
-        /* schedule call_soon to invoke completion with success (err=0) */
-        loop_call_soon((loop_cb_t) (void*) (intptr_t) (/* wrapper inline */ 0), NULL);
-        /* Instead of complex wrapper, we'll directly call callback now (but keep op allocated to match semantics) */
-        /* Note: to keep model consistent we'll call cb immediately and free op. */
-        int err = 0;
-        if (op->cb) op->cb(loop, op->userdata, op->type, err, 0, NULL);
-        ops_remove(loop, op);
-        free(op);
-        return LOOP_INVALID_OP_ID; /* already completed, so returning invalid - keep compatibility with Windows which used ConnectEx to post pending op. */
-    } else {
-        if (errno != EINPROGRESS && errno != EWOULDBLOCK) {
-            return LOOP_INVALID_OP_ID;
-        }
+    if (ret != 0 && errno != EINPROGRESS && errno != EWOULDBLOCK) {
+        return LOOP_INVALID_OP_ID;
     }
 
     loop_op_t *op = calloc(1, sizeof(loop_op_t));

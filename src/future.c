@@ -6,22 +6,24 @@ static void real_invoke_callback(loop_t *_, void *data) {
     free(data);
 }
 
-static void real_cleanup(loop_t *_, void *data) {
-    future_t *fut = data;
-    future_destroy(fut);
+// Schedule one callback to run on the next loop tick. Never invokes synchronously,
+// so completing a future can never re-enter the task driver.
+static void schedule_callback(future_t *fut, future_cb_t cb, void *userdata) {
+    callback_data_t *data = calloc(1, sizeof(callback_data_t));
+    data->future = fut;
+    data->cb = cb;
+    data->userdata = userdata;
+    loop_call_soon(real_invoke_callback, data);
 }
 
 static void future_invoke_callbacks(future_t *fut) {
     future_cb_node_t *node = fut->callbacks;
     while (node) {
-        callback_data_t *data = calloc(1, sizeof(callback_data_t));
-        data->userdata = node->userdata;
-        data->future = fut;
-        data->cb = node->cb;
-        loop_call_soon(real_invoke_callback, data);
+        schedule_callback(fut, node->cb, node->userdata);
         node = node->next;
     }
-    loop_call_soon(real_cleanup, fut);
+    // No auto-destroy here: the future is owned by whoever awaits it (the task
+    // driver), which frees it after consuming the result.
 }
 
 future_t *future_create() {
@@ -76,7 +78,7 @@ void future_add_done_callback(future_t *fut, future_cb_t cb, void *userdata) {
     }
 
     if (fut->state != FUTURE_PENDING) {
-        cb(fut, userdata);
+        schedule_callback(fut, cb, userdata);
     }
 }
 
