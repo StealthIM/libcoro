@@ -1,6 +1,7 @@
 #include "loop.h"
 
 #include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
 #include <mswsock.h>
 #include <stdlib.h>
@@ -365,12 +366,24 @@ loop_op_id_t loop_connect_async(void *handle, const struct sockaddr *addr, int a
     /* load ConnectEx pointer */
     load_extensions_if_needed(loop, s);
 
-    struct sockaddr_in local = {0};
-    local.sin_family = AF_INET;
-    local.sin_addr.s_addr = INADDR_ANY;
-    local.sin_port = 0;
-    if (bind(s, (struct sockaddr*)&local, sizeof(local)) != 0) {
-        return LOOP_INVALID_OP_ID;
+    /* ConnectEx requires the socket be bound first. Bind the wildcard address
+       matching the *target* family, so IPv6 connects work as well as IPv4. */
+    if (addr->sa_family == AF_INET6) {
+        struct sockaddr_in6 local6 = {0};
+        local6.sin6_family = AF_INET6;
+        local6.sin6_addr = in6addr_any;
+        local6.sin6_port = 0;
+        if (bind(s, (struct sockaddr*)&local6, sizeof(local6)) != 0) {
+            return LOOP_INVALID_OP_ID;
+        }
+    } else {
+        struct sockaddr_in local = {0};
+        local.sin_family = AF_INET;
+        local.sin_addr.s_addr = INADDR_ANY;
+        local.sin_port = 0;
+        if (bind(s, (struct sockaddr*)&local, sizeof(local)) != 0) {
+            return LOOP_INVALID_OP_ID;
+        }
     }
 
     loop_op_t *op = calloc(1, sizeof(loop_op_t));
@@ -421,16 +434,17 @@ loop_op_id_t loop_accept_async(void *listen_handle, void **accept_handle_out, lo
     load_extensions_if_needed(loop, listen_sock);
     if (!loop->lpAcceptEx) return LOOP_INVALID_OP_ID;
 
-    SOCKET acc = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (acc == INVALID_SOCKET) return LOOP_INVALID_OP_ID;
-
-    struct sockaddr_in local = {0};
-    local.sin_family = AF_INET;
-    local.sin_addr.s_addr = INADDR_ANY;
-    local.sin_port = 0;
-    if (bind(acc, (struct sockaddr*)&local, sizeof(local)) != 0) {
-        return LOOP_INVALID_OP_ID;
+    /* The accepted socket must be created with the same address family as the
+       listener, so query it rather than assuming AF_INET (supports IPv6). */
+    struct sockaddr_storage la;
+    int la_len = (int)sizeof(la);
+    int af = AF_INET;
+    if (getsockname(listen_sock, (struct sockaddr*)&la, &la_len) == 0) {
+        af = la.ss_family;
     }
+
+    SOCKET acc = socket(af, SOCK_STREAM, IPPROTO_TCP);
+    if (acc == INVALID_SOCKET) return LOOP_INVALID_OP_ID;
 
     loop_op_t *op = calloc(1, sizeof(loop_op_t));
     ZeroMemory(&op->ov, sizeof(op->ov));
