@@ -3,7 +3,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#ifdef WIN32
+#if defined(LIBCORO_LWIP)
+/* lwIP 的 struct sockaddr 是 BSD 风格 (首字节 sa_len), 与 Linux 布局不同。
+ * lwip 后端下全链路 (loop / asyncweb pal_socket) 必须统一用 lwIP 的定义。 */
+#include "lwip/sockets.h"
+#elif defined(WIN32)
 #include <winsock2.h>
 #else
 #include <sys/socket.h>
