@@ -1,5 +1,6 @@
 #include "loop.h"
 #include "offload.h"
+#include "task.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -32,7 +33,7 @@ typedef struct loop_op_s {
         struct { char *buf; unsigned long len; } recv;
         struct { char *buf; unsigned long len; } send;
         struct { struct sockaddr_storage addr; socklen_t addrlen; int state; } conn;
-        struct { int accept_fd; } acc;
+        struct { int accept_fd; void **out; } acc;
     } u;
 
     struct loop_op_s *next;
@@ -287,11 +288,12 @@ loop_op_id_t loop_accept_async(void *listen_handle, void **accept_handle_out, lo
     if (!op) return LOOP_INVALID_OP_ID;
     op->type = LOOP_OP_ACCEPT; op->id = alloc_op_id(loop); op->fd = listen_fd; op->cb = cb; op->userdata = userdata; op->cancelled = 0;
     op->u.acc.accept_fd = -1;
+    op->u.acc.out = accept_handle_out;
     ops_add(loop, op);
     set_nonblocking(listen_fd);
     if (loop->wake_w >= 0) { char b = 1; ssize_t ignored = write(loop->wake_w, &b, 1); (void)ignored; }
-    /* Note: POSIX accept returns accepted fd only at accept time; we don't create accept socket here. */
-    (void)accept_handle_out; /* unused in this implementation */
+    /* accepted fd is delivered to *accept_handle_out at completion (matching the
+       epoll backend contract); the completion callback fires afterwards. */
     return op->id;
 }
 
@@ -482,9 +484,11 @@ static void loop_run_once() {
                     complete_and_free_op(loop, cur, e, 0, NULL);
                 }
             } else {
-                /* accepted one connection; set non-blocking and deliver fd in bytes field */
+                /* accepted one connection; set non-blocking and deliver fd via
+                   *accept_handle_out (matching epoll backend), callback bytes==0 */
                 set_nonblocking(afd);
-                complete_and_free_op(loop, cur, 0, (unsigned long)afd, NULL);
+                if (cur->u.acc.out) *cur->u.acc.out = (void*)(intptr_t)afd;
+                complete_and_free_op(loop, cur, 0, 0, NULL);
             }
         }
         cur = next;
