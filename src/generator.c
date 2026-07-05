@@ -48,6 +48,8 @@ void *gen_send(gen_t *gen, void *arg) {
 
 void gen_close(gen_t *gen) {
     if (!gen) return;
+    if (gen->ctx.cleaned) return;   // cleanup runs exactly once
+    gen->ctx.cleaned = 1;
     if (gen_in_yield_from(gen)) {
         gen->ctx.lineno = -gen->ctx.lineno; // Go to the cleanup block for yield from statement
         gen->func(&gen->ctx, NULL);

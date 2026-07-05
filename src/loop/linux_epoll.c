@@ -700,11 +700,17 @@ static void loop_run_once() {
 void loop_run(task_t *task) {
     loop_t *loop = loop_get();
     task_run(task);
-    while (!loop->stop_flag && 
-           (loop->heap_size != 0 || 
-            loop->soon_head != NULL || 
+    while (!loop->stop_flag &&
+           (loop->heap_size != 0 ||
+            loop->soon_head != NULL ||
             loop->ops_head != NULL)) {
         loop_run_once();
+    }
+    // Drain any microtasks still queued at exit (e.g. task/future teardown
+    // scheduled by the final completion callback), so cleanup runs to
+    // completion even when the loop is stopped early or the task list empties.
+    while (loop->soon_head != NULL) {
+        run_soon_tasks(loop);
     }
 }
 

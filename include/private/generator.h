@@ -35,6 +35,7 @@ typedef struct gen_ctx_s {
     yield_from_returned_callback *yield_from_callback;
     void *ret_val;
     gen_t *sub_gen;
+    int cleaned;
 } gen_ctx_t;
 
 typedef struct gen_s {
@@ -78,8 +79,8 @@ void gen_destroy(gen_t *gen);
             return GEN_NORMAL; \
         case __LINE__:
 #define gen_yield_from_task(task) \
-        __ctx->sub_gen = (task->gen); \
         __ctx->userdata = (task); \
+        __ctx->sub_gen = ((task_t*)__ctx->userdata)->gen; \
         __ctx->state = GEN_STATE_YIELD_FROM; \
         __ctx->lineno = __LINE__; \
         return GEN_YIELD_FROM; \

@@ -4,6 +4,7 @@
 
 void task_destroy_sub_sub(loop_t *_, void *data) {
     task_t *task = data;
+    gen_close(task->gen);   // run the coroutine's gen_cleanup block (idempotent)
     gen_destroy(task->gen);
     future_destroy(task->future);
     free(task);
