@@ -8,6 +8,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -37,4 +38,23 @@ unsigned int lwip_port_rand(void) {
     static unsigned int seed = 0x1234abcd;
     seed = seed * 1103515245u + 12345u;
     return seed;
+}
+
+/* ---- wolfSSL 裸机桩 (探针用) ---- */
+
+/* 熵源: QEMU 无硬件 RNG。探针用 LCG 填充 (仅验证握手能跑通, 非密码学安全!)。
+ * 真部署必须换成真随机 (硬件 RNG / 累积抖动熵)。 */
+int wolf_gen_seed(unsigned char* output, unsigned int sz) {
+    static unsigned int s = 0xC0FFEE11;
+    for (unsigned int i = 0; i < sz; i++) {
+        s = s * 1103515245u + 12345u;
+        output[i] = (unsigned char)(s >> 16);
+    }
+    return 0;
+}
+
+/* 探针计时: FreeRTOS tick -> ms (configTICK_RATE_HZ=1000, 所以 tick==ms)。
+ * 放这里让 probe_wolfssl.c 不必直接 include FreeRTOS.h。 */
+unsigned long probe_now_ms(void) {
+    return (unsigned long)xTaskGetTickCount();
 }
