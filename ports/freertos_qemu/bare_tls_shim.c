@@ -19,6 +19,13 @@ async_ssl_t* async_ssl_create_server(const char *cert_path, const char *key_path
     return NULL;   /* 裸机走 use_tls_mem / async_ssl_create_server_mem */
 }
 
+/* 客户端 file 版 (ws.c 的 wss 分支引用): 裸机 wss 客户端应走 async_ssl_create_mem
+ * (内存 CA)。这个 file 版在明文 ws / 无 CA 场景不被调, 返 NULL。 */
+async_ssl_t* async_ssl_create(async_ssl_role_t role, const char *hostname) {
+    (void)role; (void)hostname;
+    return NULL;
+}
+
 static void shim_abort(const char *fn) {
     printf("bare tls shim: %s called (bug: 裸机不走 sync SSL)\n", fn);
     abort();

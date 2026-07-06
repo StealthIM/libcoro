@@ -22,6 +22,9 @@ typedef uint16_t in_port_t;
 #ifndef AF_INET6
 #define AF_INET6  10
 #endif
+#ifndef AF_UNSPEC
+#define AF_UNSPEC 0
+#endif
 
 #ifndef INADDR_LOOPBACK
 #define INADDR_LOOPBACK  0x7f000001UL
@@ -61,6 +64,19 @@ struct sockaddr_in {
     in_port_t      sin_port;
     struct in_addr sin_addr;
     char           sin_zero[8];
+};
+
+/* IPv6: raw 后端只用 v4 环回, 但上层 (ws.c 等) 结构体里引用 sockaddr_in6,
+ * 给个最小定义满足编译 (运行期不走 v6 分支)。 */
+struct in6_addr { uint8_t s6_addr[16]; };
+
+struct sockaddr_in6 {
+    uint8_t        sin6_len;
+    sa_family_t    sin6_family;
+    in_port_t      sin6_port;
+    uint32_t       sin6_flowinfo;
+    struct in6_addr sin6_addr;
+    uint32_t       sin6_scope_id;
 };
 
 struct sockaddr_storage {
