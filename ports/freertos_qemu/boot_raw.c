@@ -45,6 +45,18 @@ unsigned int lwip_port_rand(void) {
     return seed;
 }
 
+/* wolfSSL 熵源 (user_settings.h 的 CUSTOM_RAND_GENERATE_SEED): QEMU 无硬件
+ * RNG, LCG 填充。仅验证握手能跑通, 非密码学安全! 真部署必须换硬件 RNG/抖动熵。
+ * (只在 TLS 构建 build_tls_raw.sh 里被链到; 明文构建不引用。) */
+int wolf_gen_seed(unsigned char* output, unsigned int sz) {
+    static unsigned int s = 0xC0FFEE11;
+    for (unsigned int i = 0; i < sz; i++) {
+        s = s * 1103515245u + 12345u;
+        output[i] = (unsigned char)(s >> 16);
+    }
+    return 0;
+}
+
 int main(void) {
     setvbuf(stdout, NULL, _IONBF, 0);
     printf("boot: bare-metal (NO_SYS) + lwIP raw + libcoro\n");
