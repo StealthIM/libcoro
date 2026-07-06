@@ -115,6 +115,9 @@ void *anet_raw_new_tcp(void);
 int   anet_raw_bind(void *handle, const struct sockaddr *addr, int addrlen);
 int   anet_raw_listen(void *handle, int backlog);
 void  anet_raw_close(void *handle);
+/* 读 raw_conn 的本地绑定地址 (bind 后, 含 port==0 时内核选的临时端口)。
+ * 只填 IPv4 sockaddr_in。成功返 0。 */
+int   anet_raw_getsockname(void *handle, struct sockaddr *addr, int *addrlen);
 #endif
 
 #ifdef __cplusplus

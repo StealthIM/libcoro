@@ -94,6 +94,7 @@ struct loop_s {
 
 /* 前向声明 */
 static void try_complete_recv(loop_t *loop, raw_conn_t *c);
+static int sockaddr_to_ip(const struct sockaddr *addr, ip_addr_t *ip, u16_t *port);
 
 /* -------------------- lwIP 协议栈初始化 (一次) -------------------- */
 
@@ -404,16 +405,10 @@ loop_op_id_t loop_connect_async(void *handle, const struct sockaddr *addr, int a
     raw_conn_t *c = (raw_conn_t*)handle;
     if (!c->pcb) return LOOP_INVALID_OP_ID;
 
+    (void)addrlen;
     ip_addr_t ip;
     u16_t port;
-    const struct sockaddr_in *sin = (const struct sockaddr_in*)addr;
-    if (sin->sin_family == AF_INET) {
-        ip_addr_set_ip4_u32(&ip, sin->sin_addr.s_addr);
-        port = lwip_ntohs(sin->sin_port);
-    } else {
-        (void)addrlen;
-        return LOOP_INVALID_OP_ID;   /* v6 待接: 明文 echo 测试只用 v4 环回 */
-    }
+    if (sockaddr_to_ip(addr, &ip, &port) != 0) return LOOP_INVALID_OP_ID;
 
     c->c_pending=1; c->c_cb=cb; c->c_ud=userdata;
     loop->n_pending++;
@@ -490,7 +485,8 @@ void *anet_raw_new_tcp(void) {
     ensure_lwip_init();
     raw_conn_t *c = calloc(1, sizeof(*c));
     if (!c) return NULL;
-    c->pcb = tcp_new();
+    /* 双栈 pcb (IPADDR_TYPE_ANY): 同一 pcb 可 bind/connect v4 或 v6。 */
+    c->pcb = tcp_new_ip_type(IPADDR_TYPE_ANY);
     if (!c->pcb) { free(c); return NULL; }
     tcp_arg(c->pcb, c);
     tcp_recv(c->pcb, on_recv);
@@ -499,15 +495,36 @@ void *anet_raw_new_tcp(void) {
     return c;
 }
 
+/* sockaddr (v4/v6) -> lwIP ip_addr_t + port。成功返 0。 */
+static int sockaddr_to_ip(const struct sockaddr *addr, ip_addr_t *ip, u16_t *port) {
+    const struct sockaddr_in *sin = (const struct sockaddr_in*)addr;
+    if (sin->sin_family == AF_INET) {
+        ip_addr_set_ip4_u32(ip, sin->sin_addr.s_addr);
+        *port = lwip_ntohs(sin->sin_port);
+        return 0;
+    }
+#if LWIP_IPV6
+    if (sin->sin_family == AF_INET6) {
+        const struct sockaddr_in6 *s6 = (const struct sockaddr_in6*)addr;
+        /* sin6_addr.s6_addr 是 16 字节网络序; ip6 的 addr[4] 也存网络序。 */
+        memset(ip, 0, sizeof(*ip));
+        IP_SET_TYPE(ip, IPADDR_TYPE_V6);
+        memcpy(ip_2_ip6(ip)->addr, s6->sin6_addr.s6_addr, 16);
+        *port = lwip_ntohs(s6->sin6_port);
+        return 0;
+    }
+#endif
+    return -1;
+}
+
 int anet_raw_bind(void *handle, const struct sockaddr *addr, int addrlen) {
     (void)addrlen;
     raw_conn_t *c = (raw_conn_t*)handle;
     if (!c || !c->pcb) return -1;
-    const struct sockaddr_in *sin = (const struct sockaddr_in*)addr;
-    if (sin->sin_family != AF_INET) return -1;
     ip_addr_t ip;
-    ip_addr_set_ip4_u32(&ip, sin->sin_addr.s_addr);
-    return tcp_bind(c->pcb, &ip, lwip_ntohs(sin->sin_port)) == ERR_OK ? 0 : -1;
+    u16_t port;
+    if (sockaddr_to_ip(addr, &ip, &port) != 0) return -1;
+    return tcp_bind(c->pcb, &ip, port) == ERR_OK ? 0 : -1;
 }
 
 int anet_raw_listen(void *handle, int backlog) {
@@ -519,6 +536,21 @@ int anet_raw_listen(void *handle, int backlog) {
     c->is_listener = 1;
     tcp_arg(lp, c);
     tcp_accept(lp, on_accept);
+    return 0;
+}
+
+int anet_raw_getsockname(void *handle, struct sockaddr *addr, int *addrlen) {
+    raw_conn_t *c = (raw_conn_t*)handle;
+    if (!c || !c->pcb || !addr || !addrlen || *addrlen < (int)sizeof(struct sockaddr_in))
+        return -1;
+    /* IPv4 only (raw echo 路径)。tcp_pcb 的 local_ip/local_port 是本地绑定地址。 */
+    if (!IP_IS_V4_VAL(c->pcb->local_ip)) return -1;
+    struct sockaddr_in *sin = (struct sockaddr_in*)addr;
+    memset(sin, 0, sizeof(*sin));
+    sin->sin_family = AF_INET;
+    sin->sin_port = lwip_htons(c->pcb->local_port);
+    sin->sin_addr.s_addr = ip_addr_get_ip4_u32(&c->pcb->local_ip);
+    *addrlen = (int)sizeof(*sin);
     return 0;
 }
 
