@@ -27,6 +27,26 @@ typedef uint16_t in_port_t;
 #define INADDR_LOOPBACK  0x7f000001UL
 #endif
 
+/* socket 类型常量 (raw 后端忽略, 只为满足 anet_palsock_create 调用方) */
+#ifndef SOCK_STREAM
+#define SOCK_STREAM  1
+#endif
+
+/* 字节序: 复用 lwIP 的 (lwip/def.h, 不受 LWIP_SOCKET gate 影响)。
+ * 高层代码 (http_server 等) 用小写 htons/htonl/ntohs, 映射过去。 */
+#ifndef htons
+#define htons(x)  PP_HTONS(x)
+#endif
+#ifndef ntohs
+#define ntohs(x)  PP_NTOHS(x)
+#endif
+#ifndef htonl
+#define htonl(x)  PP_HTONL(x)
+#endif
+#ifndef ntohl
+#define ntohl(x)  PP_NTOHL(x)
+#endif
+
 struct in_addr { uint32_t s_addr; };
 
 struct sockaddr {
