@@ -3,7 +3,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#if defined(LIBCORO_LWIP)
+#if defined(LIBCORO_LWIP_RAW)
+/* 裸机 NO_SYS: lwIP 的 sockaddr 被 LWIP_SOCKET gate 掉 (LWIP_SOCKET=0),
+ * 用端口自带的最小 sockaddr 定义 (只够 IPv4 环回)。 */
+#include "raw_inet.h"
+#elif defined(LIBCORO_LWIP)
 /* lwIP 的 struct sockaddr 是 BSD 风格 (首字节 sa_len), 与 Linux 布局不同。
  * lwip 后端下全链路 (loop / asyncweb pal_socket) 必须统一用 lwIP 的定义。 */
 #include "lwip/sockets.h"
