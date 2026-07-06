@@ -106,6 +106,17 @@ loop_op_id_t loop_accept_async(void *listen_handle, void **accept_handle_out, lo
 /* cancel op */
 int loop_cancel_op(loop_op_id_t id);
 
+#if defined(LIBCORO_LWIP_RAW)
+/* ========== 裸机 raw lwIP socket setup (lwip_raw.c 实现) ==========
+ * NO_SYS=1 下没有 lwip_socket()/fd; 这几个函数建/配 raw_conn_t 包装, 返回它
+ * 作 loop 的 void* handle。只做非阻塞 setup, 不做 sync IO (裸机决策)。
+ * connect/recv/send/accept 走上面的异步 op API, handle 传这里返回的指针。 */
+void *anet_raw_new_tcp(void);
+int   anet_raw_bind(void *handle, const struct sockaddr *addr, int addrlen);
+int   anet_raw_listen(void *handle, int backlog);
+void  anet_raw_close(void *handle);
+#endif
+
 #ifdef __cplusplus
 }
 #endif

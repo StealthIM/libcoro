@@ -14,8 +14,7 @@
 #include <string.h>
 #include <stdint.h>
 
-#include "loop.h"
-#include "raw_setup.h"
+#include "loop.h"       /* anet_raw_* setup 声明在 LIBCORO_LWIP_RAW 分支里 */
 
 #include "lwip/def.h"   /* PP_HTONS / PP_HTONL (sockaddr 用 raw_inet.h) */
 
