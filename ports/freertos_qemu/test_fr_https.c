@@ -46,7 +46,7 @@ static void handler(const anet_http_server_request_t *req,
 /* ---- 客户端协程: connect -> TLS 握手 -> 发 GET -> 收响应 -> 校验 ---- */
 task_t* task_arg(client_task) {
     gen_dec_vars(
-        async_socket_t *sock;
+        anet_socket_t *sock;
         async_ssl_t    *ssl;
         future_t       *cfut;
         task_t         *t;
@@ -56,7 +56,7 @@ task_t* task_arg(client_task) {
     );
     gen_begin(ctx);
 
-    gen_var(sock) = async_socket_create(anet_palsock_create(0,0,0,1));
+    gen_var(sock) = anet_socket_create(anet_palsock_create(0,0,0,1));
     if (!gen_var(sock)) { printf("client create fail\n"); gen_return(1); }
 
     {
@@ -65,7 +65,7 @@ task_t* task_arg(client_task) {
         addr.sin_family = AF_INET;
         addr.sin_port = PP_HTONS(PORT);
         addr.sin_addr.s_addr = PP_HTONL(INADDR_LOOPBACK);
-        gen_var(cfut) = async_socket_connect(gen_var(sock), (struct sockaddr*)&addr, sizeof(addr));
+        gen_var(cfut) = anet_socket_connect(gen_var(sock), (struct sockaddr*)&addr, sizeof(addr));
     }
     gen_yield(gen_var(cfut));
     if (anet_code_of(future_result(gen_var(cfut))) < 0) { printf("connect fail\n"); gen_return(1); }

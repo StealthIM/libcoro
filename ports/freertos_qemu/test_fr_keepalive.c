@@ -43,7 +43,7 @@ static void handler(const anet_http_server_request_t *req,
 /* 用协程发 2 个请求, 每步 yield 等 future。 */
 task_t* task_arg(client_task) {
     gen_dec_vars(
-        async_socket_t *sock;
+        anet_socket_t *sock;
         future_t       *fut;
         char            buf[512];
         int             n;
@@ -52,7 +52,7 @@ task_t* task_arg(client_task) {
     );
     gen_begin(ctx);
 
-    gen_var(sock) = async_socket_create(anet_palsock_create(0,0,0,1));
+    gen_var(sock) = anet_socket_create(anet_palsock_create(0,0,0,1));
     if (!gen_var(sock)) { printf("client create fail\n"); gen_return(1); }
 
     {
@@ -61,7 +61,7 @@ task_t* task_arg(client_task) {
         addr.sin_family = AF_INET;
         addr.sin_port = PP_HTONS(PORT);
         addr.sin_addr.s_addr = PP_HTONL(INADDR_LOOPBACK);
-        gen_var(fut) = async_socket_connect(gen_var(sock), (struct sockaddr*)&addr, sizeof(addr));
+        gen_var(fut) = anet_socket_connect(gen_var(sock), (struct sockaddr*)&addr, sizeof(addr));
     }
     gen_yield(gen_var(fut));
     if (anet_code_of(future_result(gen_var(fut))) < 0) { printf("connect fail\n"); gen_return(1); }
@@ -69,7 +69,7 @@ task_t* task_arg(client_task) {
     /* --- 请求 1: keep-alive --- */
     {
         static const char R1[] = "GET /one HTTP/1.1\r\nHost: x\r\n\r\n";
-        gen_var(fut) = async_socket_send(gen_var(sock), R1, sizeof(R1)-1);
+        gen_var(fut) = anet_socket_send(gen_var(sock), R1, sizeof(R1)-1);
     }
     gen_yield(gen_var(fut));
     if (anet_code_of(future_result(gen_var(fut))) < 0) { printf("send1 fail\n"); gen_return(1); }
@@ -77,7 +77,7 @@ task_t* task_arg(client_task) {
     /* 收响应 1 (循环 recv 到含 RESP_BODY) */
     gen_var(got1) = 0;
     while (gen_var(got1) < (int)sizeof(gen_var(buf)) - 1) {
-        gen_var(fut) = async_socket_recv(gen_var(sock), gen_var(buf)+gen_var(got1),
+        gen_var(fut) = anet_socket_recv(gen_var(sock), gen_var(buf)+gen_var(got1),
                                          sizeof(gen_var(buf))-1-gen_var(got1));
         gen_yield(gen_var(fut));
         gen_var(n) = (int)anet_code_of(future_result(gen_var(fut)));
@@ -93,14 +93,14 @@ task_t* task_arg(client_task) {
     /* --- 请求 2: Connection: close --- */
     {
         static const char R2[] = "GET /two HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n";
-        gen_var(fut) = async_socket_send(gen_var(sock), R2, sizeof(R2)-1);
+        gen_var(fut) = anet_socket_send(gen_var(sock), R2, sizeof(R2)-1);
     }
     gen_yield(gen_var(fut));
     if (anet_code_of(future_result(gen_var(fut))) < 0) { printf("send2 fail\n"); gen_return(1); }
 
     gen_var(got2) = 0;
     while (gen_var(got2) < (int)sizeof(gen_var(buf)) - 1) {
-        gen_var(fut) = async_socket_recv(gen_var(sock), gen_var(buf)+gen_var(got2),
+        gen_var(fut) = anet_socket_recv(gen_var(sock), gen_var(buf)+gen_var(got2),
                                          sizeof(gen_var(buf))-1-gen_var(got2));
         gen_yield(gen_var(fut));
         gen_var(n) = (int)anet_code_of(future_result(gen_var(fut)));
@@ -120,7 +120,7 @@ task_t* task_arg(client_task) {
         printf("keepalive mismatch: req_count=%d\n", g_req_count);
     }
 
-    async_socket_close(gen_var(sock));
+    anet_socket_close(gen_var(sock));
     anet_http_server_stop(g_server);
     loop_stop();
     gen_end(0);

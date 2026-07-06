@@ -43,7 +43,7 @@ static void handler(const anet_http_server_request_t *req,
 /* ---- 客户端协程: connect -> 发 GET -> 收响应 -> 校验含 RESP_BODY ---- */
 task_t* task_arg(client_task) {
     gen_dec_vars(
-        async_socket_t *sock;
+        anet_socket_t *sock;
         future_t       *fut;
         char            buf[512];
         int             total;
@@ -51,7 +51,7 @@ task_t* task_arg(client_task) {
     );
     gen_begin(ctx);
 
-    gen_var(sock) = async_socket_create(anet_palsock_create(0,0,0,1));
+    gen_var(sock) = anet_socket_create(anet_palsock_create(0,0,0,1));
     if (!gen_var(sock)) { printf("client create fail\n"); gen_return(1); }
 
     {
@@ -60,7 +60,7 @@ task_t* task_arg(client_task) {
         addr.sin_family = AF_INET;
         addr.sin_port = PP_HTONS(PORT);
         addr.sin_addr.s_addr = PP_HTONL(INADDR_LOOPBACK);
-        gen_var(fut) = async_socket_connect(gen_var(sock), (struct sockaddr*)&addr, sizeof(addr));
+        gen_var(fut) = anet_socket_connect(gen_var(sock), (struct sockaddr*)&addr, sizeof(addr));
     }
     gen_yield(gen_var(fut));
     if (anet_code_of(future_result(gen_var(fut))) < 0) { printf("connect fail\n"); gen_return(1); }
@@ -68,7 +68,7 @@ task_t* task_arg(client_task) {
     {
         static const char REQ[] =
             "GET /hello HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
-        gen_var(fut) = async_socket_send(gen_var(sock), REQ, sizeof(REQ)-1);
+        gen_var(fut) = anet_socket_send(gen_var(sock), REQ, sizeof(REQ)-1);
     }
     gen_yield(gen_var(fut));
     if (anet_code_of(future_result(gen_var(fut))) < 0) { printf("client send fail\n"); gen_return(1); }
@@ -76,7 +76,7 @@ task_t* task_arg(client_task) {
     /* 读响应 (可能多段): 循环收到 EOF 或缓冲满 */
     gen_var(total) = 0;
     while (gen_var(total) < (int)sizeof(gen_var(buf)) - 1) {
-        gen_var(fut) = async_socket_recv(gen_var(sock),
+        gen_var(fut) = anet_socket_recv(gen_var(sock),
                           gen_var(buf) + gen_var(total),
                           sizeof(gen_var(buf)) - 1 - gen_var(total));
         gen_yield(gen_var(fut));
@@ -94,7 +94,7 @@ task_t* task_arg(client_task) {
         printf("http client mismatch: %d bytes\n", gen_var(total));
     }
 
-    async_socket_close(gen_var(sock));
+    anet_socket_close(gen_var(sock));
     anet_http_server_stop(g_server);
     loop_stop();
     gen_end(0);

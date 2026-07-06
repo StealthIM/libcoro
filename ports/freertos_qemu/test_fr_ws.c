@@ -27,24 +27,24 @@
 
 static int g_pass = 0;
 static int g_stop = 0;
-static async_listener_t *g_listener = NULL;
+static anet_listener_t *g_listener = NULL;
 
 /* ---- 服务端协程: accept -> WS 握手 -> recv -> echo ---- */
 task_t* task_arg(server_task) {
     gen_dec_vars(
-        async_listener_t *listener;
+        anet_listener_t *listener;
         future_t         *afut;
-        async_socket_t   *conn;
+        anet_socket_t   *conn;
         anet_async_ws_t  *ws;
         task_t           *t;
         anet_ws_message_t msg;
     );
     gen_begin(ctx);
-    gen_var(listener) = (async_listener_t*)gen_userdata();
+    gen_var(listener) = (anet_listener_t*)gen_userdata();
 
-    gen_var(afut) = async_socket_accept(gen_var(listener));
+    gen_var(afut) = anet_socket_accept(gen_var(listener));
     gen_yield(gen_var(afut));
-    gen_var(conn) = (async_socket_t*)future_result(gen_var(afut));
+    gen_var(conn) = (anet_socket_t*)future_result(gen_var(afut));
     if (!gen_var(conn)) { printf("accept failed\n"); gen_return(1); }
 
     gen_var(t) = anet_async_ws_accept(gen_var(conn), &gen_var(ws));
@@ -121,14 +121,14 @@ int run_echo_loop(void) {   /* 复用 boot_raw.c 入口名 */
     if (anet_palsock_bind(lsock, (struct sockaddr*)&a, sizeof(a)) != 0) { printf("bind fail\n"); return 1; }
     if (anet_palsock_listen(lsock, 4) != 0) { printf("listen fail\n"); return 1; }
 
-    g_listener = async_listener_create(lsock);
+    g_listener = anet_listener_create(lsock);
 
     task_t *st = server_task(g_listener);
     task_t *ct = client_task(NULL);
     task_run(st);
     loop_run(ct);
 
-    async_listener_close(g_listener);
+    anet_listener_close(g_listener);
     loop_destroy();
     (void)g_stop;
 

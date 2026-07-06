@@ -41,9 +41,9 @@ static int g_pass = 0;
 /* ---- 服务端协程: accept -> TLS 握手 -> echo ---- */
 task_t* task_arg(server_task) {
     gen_dec_vars(
-        async_listener_t *listener;
+        anet_listener_t *listener;
         future_t         *afut;
-        async_socket_t   *conn;
+        anet_socket_t   *conn;
         async_ssl_t      *ssl;
         task_t           *t;
         char              buf[128];
@@ -51,11 +51,11 @@ task_t* task_arg(server_task) {
     );
     gen_begin(ctx);
 
-    gen_var(listener) = (async_listener_t*)gen_userdata();
+    gen_var(listener) = (anet_listener_t*)gen_userdata();
 
-    gen_var(afut) = async_socket_accept(gen_var(listener));
+    gen_var(afut) = anet_socket_accept(gen_var(listener));
     gen_yield(gen_var(afut));
-    gen_var(conn) = (async_socket_t*)future_result(gen_var(afut));
+    gen_var(conn) = (anet_socket_t*)future_result(gen_var(afut));
     if (!gen_var(conn)) { printf("accept failed\n"); gen_return(1); }
 
     /* 服务端 SSL: 内存 ECC 证书链 + 私钥 (DER) */
@@ -90,7 +90,7 @@ task_t* task_arg(server_task) {
 /* ---- 客户端协程: connect -> TLS 握手 -> write -> read 校验 ---- */
 task_t* task_arg(client_task) {
     gen_dec_vars(
-        async_socket_t *sock;
+        anet_socket_t *sock;
         async_ssl_t    *ssl;
         future_t       *cfut;
         task_t         *t;
@@ -101,7 +101,7 @@ task_t* task_arg(client_task) {
 
     {
         int fd = lwip_socket(AF_INET, SOCK_STREAM, 0);
-        gen_var(sock) = async_socket_create(fd);
+        gen_var(sock) = anet_socket_create(fd);
     }
 
     struct sockaddr_in addr;
@@ -110,7 +110,7 @@ task_t* task_arg(client_task) {
     addr.sin_port = PP_HTONS(PORT);
     addr.sin_addr.s_addr = PP_HTONL(INADDR_LOOPBACK);
 
-    gen_var(cfut) = async_socket_connect(gen_var(sock), (struct sockaddr*)&addr, sizeof(addr));
+    gen_var(cfut) = anet_socket_connect(gen_var(sock), (struct sockaddr*)&addr, sizeof(addr));
     gen_yield(gen_var(cfut));
     if (anet_code_of(future_result(gen_var(cfut))) < 0) {
         printf("connect failed\n"); gen_return(1);
@@ -168,7 +168,7 @@ int run_echo_loop(void) {   /* 复用 boot_fr.c 入口名 */
     if (lwip_bind(g_listen_fd, (struct sockaddr*)&a, sizeof(a)) < 0) { printf("bind fail\n"); return 1; }
     if (lwip_listen(g_listen_fd, 4) < 0) { printf("listen fail\n"); return 1; }
 
-    async_listener_t *listener = async_listener_create(g_listen_fd);
+    anet_listener_t *listener = anet_listener_create(g_listen_fd);
 
     /* 启动 server + client 两个协程, 跑 loop */
     task_t *st = server_task(listener);
@@ -176,7 +176,7 @@ int run_echo_loop(void) {   /* 复用 boot_fr.c 入口名 */
     task_run(st);
     loop_run(ct);
 
-    async_listener_close(listener);
+    anet_listener_close(listener);
     loop_destroy();
 
     printf("%s\n", g_pass ? "STAGE2A TLS OK" : "STAGE2A TLS FAIL");
