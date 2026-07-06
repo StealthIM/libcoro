@@ -6,13 +6,17 @@ set(CMAKE_C_STANDARD 11)
 set(LIBCORO_OS_BACKEND "" CACHE STRING "Choose OS backend: epoll, select, win, lwip")
 set_property(CACHE LIBCORO_OS_BACKEND PROPERTY STRINGS epoll select win lwip)
 
+# offload 线程池: 有 OS 线程的目标默认开; 无线程目标 (裸机 NO_SYS) 应关。
+# 关掉时 offload.c/pal_thread 不编, 换 offload_stub.c (全 no-op, loop_get_offload
+# 返 NULL, loop_run_in_thread 返 NULL —— 调用方需自备无线程回落如 native-async DNS)。
+option(LIBCORO_HAVE_OFFLOAD "Build the offload thread pool (requires OS threads)" ON)
+
 add_library(libcoro)
 
 list(APPEND SRC_FILES
         src/future.c
         src/generator.c
         src/task.c
-        src/offload.c
         include/private/loop.h
         include/private/future.h
         include/private/generator.h
@@ -21,17 +25,35 @@ list(APPEND SRC_FILES
         include/private/offload.h
 )
 
+# offload 能力: 开 => 真线程池 (offload.c) + 后端各自的 pal_thread;
+#               关 => 空实现 (offload_stub.c), 不链任何线程原语。
+if(LIBCORO_HAVE_OFFLOAD)
+    list(APPEND SRC_FILES src/offload.c)
+else()
+    list(APPEND SRC_FILES src/offload_stub.c)
+endif()
+
+# pal_thread 只在开 offload 时按后端选 (关掉时无线程依赖)。
+set(LIBCORO_PAL_THREAD "")
+if(LIBCORO_HAVE_OFFLOAD)
+    if(LIBCORO_OS_BACKEND STREQUAL "win")
+        set(LIBCORO_PAL_THREAD src/pal/thread_win.c)
+    else()
+        set(LIBCORO_PAL_THREAD src/pal/thread_posix.c)
+    endif()
+endif()
+
 if(LIBCORO_OS_BACKEND STREQUAL "epoll")
-    list(APPEND SRC_FILES src/loop/linux_epoll.c src/pal/thread_posix.c)
+    list(APPEND SRC_FILES src/loop/linux_epoll.c ${LIBCORO_PAL_THREAD})
 elseif(LIBCORO_OS_BACKEND STREQUAL "select")
-    list(APPEND SRC_FILES src/loop/linux_select.c src/pal/thread_posix.c)
+    list(APPEND SRC_FILES src/loop/linux_select.c ${LIBCORO_PAL_THREAD})
 
 elseif(LIBCORO_OS_BACKEND STREQUAL "win")
-    list(APPEND SRC_FILES src/loop/windows.c src/pal/thread_win.c)
+    list(APPEND SRC_FILES src/loop/windows.c ${LIBCORO_PAL_THREAD})
 elseif(LIBCORO_OS_BACKEND STREQUAL "lwip")
     # lwIP 后端 —— 阶段 1: UNIX host port (socket 模式, 底层仍 pthread)。
     # loop 事件循环用 lwip_select; 线程原语沿用 thread_posix (offload 保留)。
-    list(APPEND SRC_FILES src/loop/lwip_select.c src/pal/thread_posix.c)
+    list(APPEND SRC_FILES src/loop/lwip_select.c ${LIBCORO_PAL_THREAD})
 
     # 拉 lwIP 源码 (可用 FETCHCONTENT_SOURCE_DIR_LWIP 指向本地 clone 免网络)。
     # SOURCE_SUBDIR 指向一个没有 CMakeLists.txt 的子目录 => MakeAvailable 只
@@ -86,10 +108,15 @@ target_include_directories(libcoro
 
 if(WIN32)
     target_link_libraries(libcoro PRIVATE ws2_32)
-else()
+elseif(LIBCORO_HAVE_OFFLOAD)
+    # 线程只在开 offload 时需要 (pal_thread + offload.c)。
     set(THREADS_PREFER_PTHREAD_FLAG ON)
     find_package(Threads REQUIRED)
     target_link_libraries(libcoro PUBLIC Threads::Threads)
+endif()
+
+if(NOT LIBCORO_HAVE_OFFLOAD)
+    target_compile_definitions(libcoro PUBLIC LIBCORO_NO_OFFLOAD=1)
 endif()
 
 if(LIBCORO_LWIP)
@@ -106,12 +133,18 @@ else()
     set(LIBCORO_LOOP_TEST tests/test_loop.c)
 endif()
 
+# offload 测试只在开 offload 时编入 (无线程时该测试无意义)。
+set(LIBCORO_OFFLOAD_TEST "")
+if(LIBCORO_HAVE_OFFLOAD)
+    set(LIBCORO_OFFLOAD_TEST tests/test_offload.c)
+endif()
+
 add_executable(libcoro_tests
         tests/main.c
         ${LIBCORO_LOOP_TEST}
         tests/test_nested_task.c
         tests/test_empty_task.c
-        tests/test_offload.c
+        ${LIBCORO_OFFLOAD_TEST}
 )
 target_link_libraries(libcoro_tests PRIVATE libcoro)
 
@@ -123,4 +156,6 @@ else()
 endif()
 add_test(NAME test_nested_task COMMAND libcoro_tests nested_task)
 add_test(NAME test_empty_task COMMAND libcoro_tests empty_task)
-add_test(NAME test_offload COMMAND libcoro_tests offload)
+if(LIBCORO_HAVE_OFFLOAD)
+    add_test(NAME test_offload COMMAND libcoro_tests offload)
+endif()

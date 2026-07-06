@@ -4,7 +4,9 @@
 
 int test_nested_task();
 int test_empty_task();
+#ifndef LIBCORO_NO_OFFLOAD
 int test_offload();
+#endif
 
 #ifdef LIBCORO_LWIP
 /* lwip 后端: test_loop 用系统 socket + 外部网络, 与 lwIP 冲突且跑不了;
@@ -27,7 +29,9 @@ int main(int argc, char** argv) {
 #endif
     if (strcmp(argv[1], "nested_task") == 0) return test_nested_task();
     if (strcmp(argv[1], "empty_task") == 0) return test_empty_task();
+#ifndef LIBCORO_NO_OFFLOAD
     if (strcmp(argv[1], "offload") == 0) return test_offload();
+#endif
 
     printf("Unknown test: %s\n", argv[1]);
     return 1;
