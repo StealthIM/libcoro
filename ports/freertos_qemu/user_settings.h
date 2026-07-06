@@ -52,6 +52,11 @@ extern "C" {
 #define HAVE_SUPPORTED_CURVES
 #define HAVE_ECC_KEY_IMPORT
 
+/* ---- SNI + IP-SAN 校验 (async_ssl client hostname 校验用) ---- */
+#define HAVE_SNI               /* wolfSSL_UseSNI / WOLFSSL_SNI_HOST_NAME */
+#define WOLFSSL_IP_ALT_NAME    /* wolfSSL_check_ip_address (证书 IP:SAN) */
+#define KEEP_PEER_CERT         /* check_domain_name/ip 需要留着对端证书 */
+
 /* ---- TLS 版本: 1.2 + 1.3 都留 (别用 #define WOLFSSL_NO_TLS12 0, 那样
  * 仍算"已定义"会关掉 1.2)。NO_OLD_TLS 去掉 <1.2。探针用 1.3。 ---- */
 #define WOLFSSL_TLS13
@@ -69,7 +74,9 @@ extern "C" {
 #define NO_RC4
 #define NO_MD4
 #define NO_MD5                 /* TLS1.3 不需要 MD5; hmac.c 否则引用 wc_Md5* */
-#define NO_SHA                 /* 不需要 SHA-1 (TLS1.3 用 SHA-256/384) */
+/* SHA-1 保留: TLS1.3 本身不用, 但 asyncweb 的 anet_tls_sha1 (WS 握手 RFC6455
+ * 强制 SHA-1) 需要。嵌入式后端也该支持 WS。 */
+#define WOLFSSL_SHA
 #define NO_PWDBASED
 #define NO_PSK
 
