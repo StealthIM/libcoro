@@ -1,9 +1,8 @@
 /*
- * 阶段 2b + TLS: 裸机 (NO_SYS=1) WebSocket over TLS (wss) server 环回测试。
+ * 裸机 (NO_SYS=1) WebSocket over TLS (wss) server 环回测试。
  *
  * 证 asyncweb 的 anet_async_ws_accept_tls_mem (服务端 wss 握手, 内存证书) +
  * anet_async_ws_connect_mem (客户端 wss, 内存 CA) 在裸机 raw 后端端到端可用。
- * 是 test_fr_ws (明文) + test_fr_tls_raw (TLS) 的合流。
  *
  * 证书: certs_test.h 的 ECC P-256 DER。bootstrap 复用 boot_raw.c。
  */

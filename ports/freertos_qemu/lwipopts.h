@@ -2,9 +2,9 @@
 #define LWIP_LWIPOPTS_H
 
 /*
- * libcoro lwIP 后端 —— 阶段 2a: FreeRTOS + QEMU mps2-an385.
+ * libcoro lwIP 后端: FreeRTOS + QEMU mps2-an385。
  *
- * 和阶段 1 host 版 (ports/lwip/lwipopts.h) 的关键差异:
+ * 和 host 版 (ports/lwip/lwipopts.h) 的关键差异:
  *   - sys_arch 走 FreeRTOS (contrib/ports/freertos), 非 pthread unix port。
  *   - 内存用 lwIP 自己的静态池 (MEM_LIBC_MALLOC=0): 裸机 newlib malloc 受
  *     _sbrk 限制且非线程安全, 不能给 lwIP 用。lwIP 池是静态数组, 编译期定大小。
@@ -84,7 +84,7 @@
 #define CHECKSUM_CHECK_TCP          1
 #define CHECKSUM_CHECK_UDP          1
 
-/* ---- errno: 用 newlib 的 <errno.h> (同阶段 1: 别 #define LWIP_PROVIDE_ERRNO) ---- */
+/* ---- errno: 用 newlib 的 <errno.h> (别 #define LWIP_PROVIDE_ERRNO) ---- */
 #define LWIP_ERRNO_STDINCLUDE       1
 
 /* ---- 兼容 ---- */

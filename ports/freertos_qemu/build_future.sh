@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 阶段 2b: 裸机 raw + asyncweb future_socket 层的 echo 到 QEMU mps2-an385。
+# 裸机 raw + asyncweb future_socket 层的 echo 到 QEMU mps2-an385。
 # 用法: build_future.sh <out.elf>
 #
 # 在 build_raw.sh (裸机 raw 后端) 基础上加一组 asyncweb:

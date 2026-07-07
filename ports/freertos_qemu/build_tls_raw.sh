@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# 阶段 2b + TLS: 裸机 raw + wolfSSL + asyncweb TLS echo 到 QEMU mps2-an385。
+# TLS: 裸机 raw + wolfSSL + asyncweb TLS echo 到 QEMU mps2-an385。
 # 用法: build_tls_raw.sh <out.elf>
 #
 # 在 build_future.sh (裸机 raw + future_socket) 基础上, 加 wolfSSL (组 D) +
 # 把组 E 的测试换成 async_ssl_* TLS echo (真 wolfssl.c 替代 tls_stub)。
-# 是 2a-TLS (build_tls.sh, socket 模式) 的 raw (NO_SYS) 版。
+# socket 模式版是 build_tls.sh; 本脚本是 raw (NO_SYS) 版。
 set -e
 
 OUT="${1:-/tmp/fr_tls_raw.elf}"

@@ -1,7 +1,7 @@
 /*
- * 阶段 2a: offload 线程池端到端验证 (FreeRTOS)。
+ * offload 线程池端到端验证 (FreeRTOS)。
  *
- * offload 是 RTOS 路线相比裸机保留的核心特性 (异步 DNS 靠它)。这里在 loop
+ * offload (异步 DNS 依赖它) 只在 RTOS 配置下可用。这里在 loop
  * task 里用 loop_run_in_thread 提交一个阻塞函数, 验证:
  *   - offload worker (FreeRTOS task, 经 pal_thread) 能跑 fn。
  *   - 结果经完成队列 + loop_wake 回到 loop 主 task, resolve future。

@@ -1,9 +1,9 @@
 /*
- * 阶段 2b: 裸机 (NO_SYS=1) getsockname 测试。
+ * 裸机 (NO_SYS=1) getsockname 测试。
  *
  * bind 到 port 0 (让 lwIP 选临时端口), 再 getsockname 读回实际端口, 校验非 0。
- * 这是 http_server (port==0 临时端口) 依赖的路径, 之前 raw 后端 getsockname
- * 返 -1 未实现。同时验固定端口 bind 后 getsockname 读回同端口。
+ * 覆盖 http_server (port==0 临时端口) 依赖的路径。同时验固定端口 bind 后
+ * getsockname 读回同端口。
  *
  * bootstrap 复用 boot_raw.c。
  */

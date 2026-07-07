@@ -1,12 +1,12 @@
 /*
- * 阶段 2b: 裸机 (NO_SYS=1) 高层 HTTP server (明文) 环回测试。
+ * 裸机 (NO_SYS=1) 高层 HTTP server (明文) 环回测试。
  *
  * 证 asyncweb 的 anet_http_server_* (http_server.c: accept 循环 + 每连接协程 +
  * 请求解析 + handler + 响应 + keep-alive) 在裸机 raw 后端上端到端可用。
  * 客户端用 future_socket 发一个裸 HTTP/1.1 请求, 校验响应含预期 body。
  *
  * TLS 走桩 (tls_stub.c): 明文 server 不创建 SSL 会话, async_ssl_* 仅链接期
- * 需要。裸机 TLS 集成是后续步骤。
+ * 需要。
  *
  * bootstrap 复用 boot_raw.c 的 run_echo_loop()。
  */

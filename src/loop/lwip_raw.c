@@ -1,9 +1,9 @@
 /*
- * libcoro lwIP 后端 —— 阶段 2b: 裸机 (NO_SYS=1, raw/callback API)。
+ * libcoro lwIP 后端 —— 裸机 (NO_SYS=1, raw/callback API)。
  *
- * 和 lwip_select.c (socket 模式) 的根本差异: raw API 是"推模型"——没有 fd,
- * 没有 select, 数据由 lwIP 的 tcp_recv/tcp_sent/tcp_connected/accept 回调
- * 不请自来。本后端把这套回调映射回 loop.h 的一次性 op 完成契约:
+ * raw API 是"推模型"——没有 fd, 没有 select, 数据由 lwIP 的
+ * tcp_recv/tcp_sent/tcp_connected/accept 回调不请自来。本后端把这套回调
+ * 映射回 loop.h 的一次性 op 完成契约:
  *
  *   handle       = raw_conn_t* (裹 tcp_pcb + 每连接 rx pbuf 队列 + 待决 op)
  *   loop_run     = 手动 poll: sys_check_timeouts() + netif_poll_all() 泵栈,
@@ -15,8 +15,8 @@
  *   send 完成    = tcp_write(COPY)+tcp_output 后经 call_soon 异步完成。
  *
  * 裸机只有单一执行上下文: 没有真线程 → offload 编译关闭 (loop_get_offload
- * 返 NULL); DNS 走 lwIP 原生异步 dns_gethostbyname (不在此文件)。
- * 不提供 sync pal_socket (裸机决策)。
+ * 返 NULL); DNS 走 lwIP 原生异步 dns_gethostbyname。
+ * 不提供 sync pal_socket。
  */
 
 #include <libcoro/loop.h>
@@ -480,7 +480,7 @@ void loop_stop(void) { loop_get()->stop_flag = 1; }
 
 /* -------------------- raw socket setup (供 pal_socket/lwip_raw.c 用) --------------------
  * 裸机没有 lwip_socket()/fd。这几个函数建/配 raw_conn_t 包装, 返回它作 handle。
- * 只做非阻塞 setup, 不做 sync IO (裸机决策: 不提供 sync pal_socket)。 */
+ * 只做非阻塞 setup, 不做 sync IO (不提供 sync pal_socket)。 */
 
 void *anet_raw_new_tcp(void) {
     ensure_lwip_init();

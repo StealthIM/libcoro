@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# 阶段 2b: 裸机 (NO_SYS=1) lwIP raw + libcoro 到 QEMU mps2-an385。
+# 裸机 (NO_SYS=1) lwIP raw + libcoro 到 QEMU mps2-an385。
 # 用法: build_raw.sh <out.elf>
 #
-# 和 build.sh (2a) 的关键差异:
+# 本构建 (vs FreeRTOS 版):
 #   - 无 FreeRTOS: boot_raw.c 直接 main->run_echo_loop, SysTick 做时基。
 #   - 无 offload / pal_thread: 裸机单上下文, 不编线程池。
 #   - lwIP 只编 core (NO_SYS): 不要 api/ (netconn/sockets/tcpip) 和 sys_arch。

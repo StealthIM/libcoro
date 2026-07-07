@@ -1,5 +1,5 @@
 /*
- * 阶段 2b + TLS: 裸机 (NO_SYS=1) 高层 HTTPS server 环回测试。
+ * 裸机 (NO_SYS=1) 高层 HTTPS server 环回测试。
  *
  * 证 asyncweb 的 anet_http_server_* + anet_http_server_use_tls_mem (内存证书)
  * 在裸机 raw 后端跑 HTTPS: server 每连接先做 wolfSSL 服务端握手, 再走统一

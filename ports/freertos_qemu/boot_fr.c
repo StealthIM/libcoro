@@ -1,5 +1,5 @@
 /*
- * FreeRTOS bootstrap (阶段 2a)。
+ * FreeRTOS bootstrap。
  *
  * 只 include FreeRTOS 头, 不碰 libcoro 私有头 (libcoro 的 task.h 与
  * FreeRTOS task.h 同名, 同一翻译单元无法共存)。libcoro loop 逻辑在
@@ -40,10 +40,10 @@ unsigned int lwip_port_rand(void) {
     return seed;
 }
 
-/* ---- wolfSSL 裸机桩 (探针用) ---- */
+/* ---- wolfSSL 裸机桩 (熵源/计时) ---- */
 
-/* 熵源: QEMU 无硬件 RNG。探针用 LCG 填充 (仅验证握手能跑通, 非密码学安全!)。
- * 真部署必须换成真随机 (硬件 RNG / 累积抖动熵)。 */
+/* 熵源: QEMU 无硬件 RNG, 用 LCG 填充 (仅验证握手能跑通, 非密码学安全!)。
+ * 真硬件必须换成真随机 (硬件 RNG / 累积抖动熵)。 */
 int wolf_gen_seed(unsigned char* output, unsigned int sz) {
     static unsigned int s = 0xC0FFEE11;
     for (unsigned int i = 0; i < sz; i++) {
@@ -53,7 +53,7 @@ int wolf_gen_seed(unsigned char* output, unsigned int sz) {
     return 0;
 }
 
-/* 探针计时: FreeRTOS tick -> ms (configTICK_RATE_HZ=1000, 所以 tick==ms)。
+/* 计时: FreeRTOS tick -> ms (configTICK_RATE_HZ=1000, 所以 tick==ms)。
  * 放这里让 probe_wolfssl.c 不必直接 include FreeRTOS.h。 */
 unsigned long probe_now_ms(void) {
     return (unsigned long)xTaskGetTickCount();

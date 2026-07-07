@@ -1,9 +1,8 @@
 /*
- * 阶段 2a + TLS: 嵌入式完整栈 TLS echo。
+ * 嵌入式完整栈 TLS echo。
  *
- * 探针 (probe_wolfssl.c) 只验证了 wolfCrypt 能握手 (client<->server 内存缓冲
- * 直连)。本测试更进一步: 用真的 asyncweb wolfssl.c (async_ssl_*) 把 wolfSSL
- * 接进 libcoro loop 的 async socket —— TLS 密文真的过 lwIP 环回。
+ * 用真的 asyncweb wolfssl.c (async_ssl_*) 把 wolfSSL 接进 libcoro loop 的
+ * async socket —— TLS 密文过 lwIP 环回。
  *
  * 链路: server listen -> accept -> async_ssl_create_server_mem -> 握手 ->
  *       ssl_read -> ssl_write (echo);  client connect ->

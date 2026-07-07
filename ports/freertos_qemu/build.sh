@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 阶段 2a: 编译 FreeRTOS + lwIP + libcoro 到 QEMU mps2-an385。
+# 编译 FreeRTOS + lwIP + libcoro 到 QEMU mps2-an385。
 # 用法: build.sh <echo_impl.c> <out.elf>
 #
 # 关键: libcoro 私有头 task.h 与 FreeRTOS task.h 同名, 同一编译命令里两组

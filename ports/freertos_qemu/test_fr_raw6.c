@@ -1,7 +1,7 @@
 /*
- * 阶段 2b: 裸机 (NO_SYS=1) IPv6 环回明文 echo (::1)。
+ * 裸机 (NO_SYS=1) IPv6 环回明文 echo (::1)。
  *
- * test_fr_raw 的 v6 版: sockaddr_in6 + ::1 环回, 走 raw 后端的 v6 路径
+ * IPv6 环回: sockaddr_in6 + ::1, 走 raw 后端的 v6 路径
  * (tcp_new_ip_type(ANY) 双栈 pcb + sockaddr_to_ip 的 AF_INET6 分支)。
  * 证 raw 后端 IPv6 connect/bind/accept 通。
  *

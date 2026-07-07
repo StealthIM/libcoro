@@ -1,5 +1,5 @@
 /*
- * wolfSSL 裸机握手探针 (阶段 2b 前置可行性验证)。
+ * wolfSSL 裸机握手探针: 验证 Cortex-M3 上能否完成一次 TLS 握手及其耗时。
  *
  * 不接 loop/socket/lwIP —— 纯 wolfSSL client↔server, 用一对内存缓冲互连
  * (各自 IO 回调从对方缓冲读、往自己缓冲写)。验证最硬的未知:

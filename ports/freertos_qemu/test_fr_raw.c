@@ -1,10 +1,9 @@
 /*
- * 阶段 2b: 裸机 (NO_SYS=1, raw lwIP) 环回明文 echo。
+ * 裸机 (NO_SYS=1, raw lwIP) 环回明文 echo。
  *
  * 直连 libcoro loop 的异步 IO API (loop_accept_async / loop_connect_async /
  * loop_post_recv / loop_post_send), handle 是 raw_setup.h 的 anet_raw_new_tcp
- * 返回的 raw_conn_t*。不经 asyncweb 层 (那需要 anet_palsock_t 指针化 + HTTP +
- * native-async DNS, 是后续步骤)。证 lwip_raw.c 后端端到端。
+ * 返回的 raw_conn_t*。不经 asyncweb 层。证 lwip_raw.c 后端端到端。
  *
  * 只 include libcoro + lwIP raw 头, 不碰 FreeRTOS 头 (同 test_fr_echo.c);
  * bootstrap 复用 boot_fr.c 的 run_echo_loop()。

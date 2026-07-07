@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 阶段 2a + TLS: FreeRTOS + lwIP + libcoro + wolfSSL + asyncweb 完整栈。
+# TLS: FreeRTOS + lwIP + libcoro + wolfSSL + asyncweb 完整栈。
 # 用法: build_tls.sh <out.elf>
 #
 # 分五组编译 (同 build.sh 的 task.h 同名冲突处理, 加两组):

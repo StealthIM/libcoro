@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 阶段 2b: 裸机 raw + asyncweb WebSocket server (明文 ws) 到 QEMU mps2-an385。
+# 裸机 raw + asyncweb WebSocket server (明文 ws) 到 QEMU mps2-an385。
 # 用法: build_ws.sh <out.elf>
 #
 # WS 握手需要 SHA1 (Sec-WebSocket-Accept) + rand (Sec-WebSocket-Key), 由

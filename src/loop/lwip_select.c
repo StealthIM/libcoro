@@ -1,9 +1,8 @@
 /*
- * libcoro lwIP 后端 (阶段 1: UNIX host port, socket 模式)。
+ * libcoro lwIP 后端 (socket 模式, POSIX host)。
  *
- * 结构镜像 linux_select.c, 但有三处 lwIP 特有改动:
+ * 有三处 lwIP 特有约束:
  *   1. 协议栈初始化: 首次 loop_create 时 tcpip_init + 挂 loopback netif。
- *      (linux_select 直接用 OS, 没有这步。)
  *   2. 所有系统调用换 lwip_* (lwip_select / lwip_recv / lwip_accept ...)。
  *   3. 自唤醒: 裸 pipe() 在 lwIP socket 命名空间里不存在, 改用环回 UDP
  *      self-pipe —— 绑一个 127.0.0.1 UDP socket, loop_wake 往它发一字节。

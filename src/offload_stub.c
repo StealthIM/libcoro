@@ -5,8 +5,8 @@
  * 调 offload_* (offload_pool_create/has_pending/drain/destroy) + 暴露
  * loop_get_offload/loop_run_in_thread; 这里给全 no-op, 使后端源码无需 #ifdef:
  *   - pool 恒 NULL, has_pending 恒 0, drain/destroy no-op。
- *   - loop_run_in_thread 返 NULL (调用方如 asyncweb resolve_async 需自备无线程
- *     回落, 如 lwIP native-async DNS dns_gethostbyname)。
+ *   - loop_run_in_thread 返 NULL (调用方需自备无线程回落,
+ *     如 lwIP 原生异步 DNS dns_gethostbyname)。
  *
  * 关掉 offload 的构建不链 pal_thread, 无任何线程依赖。
  */

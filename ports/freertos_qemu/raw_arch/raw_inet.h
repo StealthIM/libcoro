@@ -1,7 +1,7 @@
 #ifndef LIBCORO_RAW_INET_H
 #define LIBCORO_RAW_INET_H
 /*
- * 裸机 NO_SYS 版最小 sockaddr 定义 (阶段 2b)。
+ * 裸机 NO_SYS 版最小 sockaddr 定义。
  *
  * lwIP 的 struct sockaddr / sockaddr_in / AF_INET 全被 LWIP_SOCKET gate 掉
  * (见 lwip/sockets.h 的 #if LWIP_SOCKET)。raw 构建 LWIP_SOCKET=0, 拿不到这些,

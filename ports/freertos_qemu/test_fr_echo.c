@@ -1,7 +1,7 @@
 /*
- * 阶段 2a 完整栈冒烟测试: FreeRTOS + lwIP + libcoro loop 的环回 echo。
+ * 完整栈冒烟测试: FreeRTOS + lwIP + libcoro loop 的环回 echo。
  *
- * 逻辑和阶段 1 的 test_lwip_echo.c 一致 (server listen / client connect /
+ * 逻辑同 host 版 test_lwip_echo.c (server listen / client connect /
  * echo / 校验), 但跑在 FreeRTOS task 里 —— loop 需要 task 上下文, 因为
  * lwIP 的 tcpip_thread 和 libcoro 的 offload worker 都是 FreeRTOS task。
  *

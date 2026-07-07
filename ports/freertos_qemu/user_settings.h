@@ -2,13 +2,13 @@
 #define WOLFSSL_USER_SETTINGS_H
 
 /*
- * wolfSSL 裸机配置 (mps2-an385 + QEMU, TLS 探针)。
+ * wolfSSL 裸机配置 (mps2-an385 + QEMU)。
  *
  * 基于官方 IDE/GCC-ARM/Header/user_settings.h 裁剪。目标: 在 Cortex-M3
  * 上以可接受耗时完成一次 TLS 握手。关键取舍:
- *   - SINGLE_THREADED: 裸机/探针无多线程 (真集成时 FreeRTOS 下会去掉)。
+ *   - SINGLE_THREADED: 裸机无多线程。
  *   - NO_FILESYSTEM: 证书走内存 buffer API (certs_test.h 的 DER)。
- *   - WOLFSSL_USER_IO: 自定义 IO 回调 (探针用 memory buffer 直连两端)。
+ *   - WOLFSSL_USER_IO: 自定义 IO 回调。
  *   - 熵源: 自定义 CUSTOM_RAND_GENERATE_SEED (QEMU 无硬件 RNG)。
  *   - SP math + ECC: M3 上 ECC 比 RSA 快得多; 用 wolfSSL 的 SP (single
  *     precision) 数学, 针对 P-256 优化, 比通用 tfm 快。
@@ -24,7 +24,7 @@ extern "C" {
 #define WOLFSSL_SMALL_STACK
 #define WOLFSSL_USER_IO
 /* WOLFSSL_USER_IO 只是不提供默认 IO 回调, 不阻止 wolfio.h 拉 <sys/socket.h>。
- * 探针用 memory IO, 无任何 socket, 加 WOLFSSL_NO_SOCK 彻底切断系统 socket 头。 */
+ * 用 memory IO, 无任何 socket; WOLFSSL_NO_SOCK 彻底切断系统 socket 头。 */
 #define WOLFSSL_NO_SOCK
 #define SIZEOF_LONG_LONG            8
 
@@ -58,7 +58,7 @@ extern "C" {
 #define KEEP_PEER_CERT         /* check_domain_name/ip 需要留着对端证书 */
 
 /* ---- TLS 版本: 1.2 + 1.3 都留 (别用 #define WOLFSSL_NO_TLS12 0, 那样
- * 仍算"已定义"会关掉 1.2)。NO_OLD_TLS 去掉 <1.2。探针用 1.3。 ---- */
+ * 仍算"已定义"会关掉 1.2)。NO_OLD_TLS 去掉 <1.2。 ---- */
 #define WOLFSSL_TLS13
 #define NO_OLD_TLS
 
@@ -66,7 +66,7 @@ extern "C" {
 #define HAVE_AESGCM
 #define WOLFSSL_SHA256
 #define HAVE_HKDF
-#define WC_NO_HARDEN           /* 探针: 关掉 blinding 等加速; 真部署再权衡 */
+#define WC_NO_HARDEN           /* 关掉 blinding 等加固; 真部署再权衡 */
 
 /* 去掉用不到的算法, 省 flash/RAM */
 #define NO_DES3
@@ -86,11 +86,11 @@ extern int wolf_gen_seed(unsigned char* output, unsigned int sz);
 
 /* ---- 时间: 用 newlib 的 time.h (别自定义 time_t/struct tm, 会和 newlib
  * 冲突)。newlib 的 time() 在裸机走 rdimon semihosting SYS_TIME; 若不准,
- * wolfSSL 证书有效期校验可能失败——探针里用 NO_ASN_TIME 关掉时间校验以
- * 隔离"公钥数学能否跑通"这个真问题 (时间校验是另一回事)。 ---- */
+ * wolfSSL 证书有效期校验可能失败——裸机无可信时间源, 用 NO_ASN_TIME
+ * 关掉证书有效期校验。 ---- */
 #define NO_ASN_TIME
 
-/* 调试: 探针关掉 (开了输出太多) */
+/* 调试输出: 关闭 (开了输出太多) */
 /* #define DEBUG_WOLFSSL */
 
 #ifdef __cplusplus

@@ -1,5 +1,5 @@
 /*
- * 裸机 HTTPS (真 wolfssl.c) 缺口垫片 (阶段 2b)。
+ * 裸机 HTTPS (真 wolfssl.c) 缺口垫片。
  *
  * 裸机用真 wolfssl.c, 但它在 NO_FILESYSTEM 下 guard 掉了两组符号, 而
  * http_server.c / stream.c 链接期仍引用:

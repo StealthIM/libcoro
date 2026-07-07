@@ -1,5 +1,5 @@
 /*
- * 阶段 2b: 裸机 (NO_SYS=1) HTTP keep-alive 环回测试。
+ * 裸机 (NO_SYS=1) HTTP keep-alive 环回测试。
  *
  * 单连接串行发 2 个请求 (第 1 个 keep-alive, 第 2 个 Connection: close), 校验
  * 两个响应都拿到。这压 raw 后端的两条之前只单发验过的路径:

@@ -9,7 +9,7 @@
 #include "raw_inet.h"
 #elif defined(LIBCORO_LWIP)
 /* lwIP 的 struct sockaddr 是 BSD 风格 (首字节 sa_len), 与 Linux 布局不同。
- * lwip 后端下全链路 (loop / asyncweb pal_socket) 必须统一用 lwIP 的定义。 */
+ * lwip 后端下全链路必须统一用 lwIP 的 struct sockaddr 定义。 */
 #include "lwip/sockets.h"
 #elif defined(WIN32)
 #include <winsock2.h>

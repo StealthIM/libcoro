@@ -2,9 +2,9 @@
 #define LWIP_LWIPOPTS_RAW_H
 
 /*
- * libcoro lwIP 后端 —— 阶段 2b: 裸机 (NO_SYS=1, raw/callback API)。
+ * libcoro lwIP 后端 —— 裸机 (NO_SYS=1, raw/callback API)。
  *
- * 和阶段 2a (FreeRTOS socket 模式, lwipopts.h) 的关键差异:
+ * 和 FreeRTOS socket 模式 (lwipopts.h) 的关键差异:
  *   - NO_SYS=1: 没有 OS 抽象层, 没有 tcpip_thread, 没有 sys_arch mbox/sem。
  *     全部在单一执行上下文里跑, 由 loop_run 手动 poll 驱动
  *     (sys_check_timeouts + netif_poll_all)。
@@ -72,7 +72,7 @@
 #define CHECKSUM_CHECK_TCP          1
 #define CHECKSUM_CHECK_UDP          1
 
-/* ---- errno: 用 newlib 的 <errno.h> (同其它 stage) ---- */
+/* ---- errno: 用 newlib 的 <errno.h> ---- */
 #define LWIP_ERRNO_STDINCLUDE       1
 
 #endif /* LWIP_LWIPOPTS_RAW_H */

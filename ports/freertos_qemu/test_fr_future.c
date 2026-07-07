@@ -1,8 +1,8 @@
 /*
- * 阶段 2b: 裸机 (NO_SYS=1) 经 asyncweb future_socket 层的环回明文 echo。
+ * 裸机 (NO_SYS=1) 经 asyncweb future_socket 层的环回明文 echo。
  *
- * test_fr_raw.c 直连 libcoro 的 raw loop API; 本测试更进一步, 走 asyncweb 的
- * anet_socket_* / anet_listener_* (future_socket.c) —— 证 pal_socket/lwip_raw.c
+ * 走 asyncweb 的 anet_socket_* / anet_listener_* (future_socket.c) —— 证
+ * pal_socket/lwip_raw.c
  * (anet_palsock_t=void*, setup 转发到 anet_raw_*) + future_socket 在裸机后端上
  * 端到端可用。协程用 gen_* (同 test_fr_tls.c 的服务端/客户端结构)。
  *

@@ -1,5 +1,5 @@
 /*
- * 阶段 2b: 裸机 (NO_SYS=1) WebSocket server (明文 ws) 环回测试。
+ * 裸机 (NO_SYS=1) WebSocket server (明文 ws) 环回测试。
  *
  * 证 asyncweb 的 anet_async_ws_accept (服务端 WS 握手) + anet_async_ws_connect
  * (客户端, 走内存 DNS 解析 127.0.0.1 字面量) + send/recv 在裸机 raw 后端端到端

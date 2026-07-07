@@ -1,14 +1,13 @@
 /*
- * 裸机 bootstrap —— 阶段 2b (NO_SYS=1, 无 FreeRTOS)。
+ * 裸机 bootstrap (NO_SYS=1, 无 FreeRTOS)。
  *
- * 和 boot_fr.c 的差异: 没有 RTOS 调度器。main 直接调 run_echo_loop()
- * (loop_run 自己手动 poll lwIP)。时间基准由 SysTick 提供 (lwIP 的 sys_now
- * 要单调毫秒), 而不是 FreeRTOS tick。
+ * 无 RTOS 调度器: main 直接调 run_echo_loop() (loop_run 自己手动 poll lwIP)。
+ * 时间基准由 SysTick 提供 (lwIP 的 sys_now 要单调毫秒), 而不是 FreeRTOS tick。
  *
  * 只 include lwIP + CMSIS 风格的 SysTick 寄存器, 不碰 FreeRTOS 头。
  *
  * ============================================================================
- * !!! 真部署清单 (QEMU 里跑通了, 但下面几项是仿真桩, 上真硬件必须替换) !!!
+ * !!! 上真硬件前必须替换的仿真桩 !!!
  *   1. wolf_gen_seed (本文件): 现在是 LCG, **非密码学安全**。真硬件用片上
  *      硬件 RNG (如 STM32 RNG / 累积 SysTick 抖动熵)。不换 = TLS 密钥可预测。
  *   2. NO_ASN_TIME (user_settings.h): 关掉了证书有效期校验, 因为裸机无可信

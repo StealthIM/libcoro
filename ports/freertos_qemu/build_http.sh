@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 阶段 2b: 裸机 raw + asyncweb 高层 HTTP server (明文) 到 QEMU mps2-an385。
+# 裸机 raw + asyncweb 高层 HTTP server (明文) 到 QEMU mps2-an385。
 # 用法: build_http.sh <out.elf>
 #
 # 在 build_future.sh 基础上, 组 E 再加 http_server.c + stream.c + tls_stub.c

@@ -2,7 +2,7 @@
 #define LWIP_LWIPOPTS_H
 
 /*
- * libcoro lwIP 后端 —— 阶段 1: UNIX host port 的 lwipopts.
+ * libcoro lwIP 后端 —— UNIX host port 的 lwipopts.
  *
  * 目标: 在 Linux 上用 lwIP socket 模式 (NO_SYS=0, 有 lwip_select) 跑通
  * loop 后端接缝, 全部流量走内建 loopback netif (127.0.0.1 / ::1), 不需要
@@ -28,7 +28,7 @@
 #define LWIP_RAW                    0
 #define LWIP_ICMP                   1
 
-/* ---- 环回 netif: 阶段 1 的唯一网络接口 ---- */
+/* ---- 环回 netif: 唯一网络接口 ---- */
 #define LWIP_HAVE_LOOPIF            1
 #define LWIP_NETIF_LOOPBACK         1
 #define LWIP_LOOPBACK_MAX_PBUFS     16

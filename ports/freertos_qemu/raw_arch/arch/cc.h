@@ -2,7 +2,7 @@
 #define LWIP_ARCH_CC_H
 
 /*
- * lwIP arch/cc.h —— 裸机 NO_SYS=1 版 (阶段 2b, mps2-an385 + newlib)。
+ * lwIP arch/cc.h —— 裸机 NO_SYS=1 版 (mps2-an385 + newlib)。
  *
  * 和 FreeRTOS 版 (../arch/cc.h) 的关键差异: NO_SYS 下没有 sys_arch.h,
  * 所以 sys_prot_t / 保护宏要在这里给 (FreeRTOS 版靠 port 的 sys_arch.h)。

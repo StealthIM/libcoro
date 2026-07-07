@@ -1,11 +1,11 @@
 /*
- * 明文裸机 HTTP server 测试用的 TLS 桩 (阶段 2b)。
+ * 明文裸机 HTTP server 测试用的 TLS 桩。
  *
  * http_server.c / stream.c 在链接期引用 async_ssl_* 符号 (TLS 路径用), 但明文
  * 服务端从不创建 SSL 会话, 运行期不会调到。为不把整个 wolfSSL 链进明文测试
  * (省 flash), 这里给一组桩: 创建类返回 NULL / 其余 abort (被调到即 bug)。
  *
- * 裸机 TLS 集成是后续单独步骤, 那时换成真的 wolfssl.c (见 2a-TLS 接法)。
+ * TLS 路径由真 wolfssl.c 实现, 见 test_fr_tls_raw.c。
  */
 
 #include <asyncweb_internal/tls.h>

@@ -1,10 +1,10 @@
 /*
- * 阶段 2b + TLS: 裸机 (NO_SYS=1, raw lwIP) 上的 wolfSSL TLS echo。
+ * 裸机 (NO_SYS=1, raw lwIP) 上的 wolfSSL TLS echo。
  *
- * 2a-TLS (test_fr_tls.c) 在 socket 模式 (lwip_select) 上验证了真 wolfssl.c 接进
- * loop; 本测试是它的 raw (NO_SYS) 版 —— 同样的 async_ssl_* + future_socket,
- * 但底层是 lwip_raw.c 回调后端 + pal_socket/lwip_raw (anet_palsock_t=void*)。
- * 密文过 lwIP 环回。证 tls_stub 可换成真 wolfSSL, HTTPS-over-裸机 可行。
+ * socket 模式版是 test_fr_tls.c; 本测试是 raw (NO_SYS) 版 —— 同样的
+ * async_ssl_* + future_socket, 但底层是 lwip_raw.c 回调后端 +
+ * pal_socket/lwip_raw (anet_palsock_t=void*)。密文过 lwIP 环回。
+ * 证 tls_stub 可换成真 wolfSSL。
  *
  * 证书: certs_test.h 的 ECC P-256 DER (内存, NO_FILESYSTEM)。
  * bootstrap 复用 boot_raw.c 的 run_echo_loop()。

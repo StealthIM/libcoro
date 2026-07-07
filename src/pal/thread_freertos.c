@@ -1,5 +1,5 @@
 /*
- * pal_thread 的 FreeRTOS 实现 (阶段 2a)。
+ * pal_thread 的 FreeRTOS 实现。
  *
  * FreeRTOS 缺两样 pthread 有的东西, 这里补上:
  *   - join: FreeRTOS task 无 join。trampoline 在退出前 give 一个信号量,

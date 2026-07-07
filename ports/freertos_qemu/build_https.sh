@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 阶段 2b + TLS: 裸机 raw + wolfSSL + 高层 HTTPS server 到 QEMU mps2-an385。
+# TLS: 裸机 raw + wolfSSL + 高层 HTTPS server 到 QEMU mps2-an385。
 # 用法: build_https.sh <out.elf>
 #
 # 在 build_tls_raw.sh (裸机 raw + wolfSSL) 基础上, 组 E 再加 http_server.c +
