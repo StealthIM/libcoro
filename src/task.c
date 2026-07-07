@@ -39,6 +39,12 @@ void task_remove_auto_destroy(task_t *task) {
     future_remove_done_callback(task->future, task_destroy_sub);
 }
 
+void task_set_on_emit(task_t *task, task_emit_cb_t cb, void *userdata) {
+    if (!task) return;
+    task->on_emit = cb;
+    task->emit_userdata = userdata;
+}
+
 void task_destroy(task_t *task) {
     if (!task) return;
     // The only condition that we have to handle here is that the generator is not finished yet
@@ -67,6 +73,16 @@ void _task_run_cb(loop_t *_, void *userdata) {
 
     if (gen_finished(task->gen)) {
         future_done(task->future, task->gen->ctx.ret_val);
+        return;
+    }
+
+    /* 异步生成器产出: 协程 gen_emit(item) 时不 await, 把 item 交给 on_emit,
+     * 再在下一 tick 继续跑。EMIT 轮无 leaf future, awaiting 保持 NULL。 */
+    if (task->gen->ctx.state == GEN_STATE_EMIT) {
+        if (task->on_emit) {
+            task->on_emit(task->gen->ctx.emit_val, task->emit_userdata);
+        }
+        loop_call_soon(_task_run_cb, task);
         return;
     }
 

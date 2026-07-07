@@ -10,6 +10,7 @@ typedef enum {
     GEN_STATE_START = 0,
     GEN_STATE_MIDDLE,
     GEN_STATE_YIELD_FROM,
+    GEN_STATE_EMIT,
     GEN_STATE_END,
 } gen_state_t;
 
@@ -36,6 +37,7 @@ typedef struct gen_ctx_s {
     void *ret_val;
     gen_t *sub_gen;
     int cleaned;
+    void *emit_val;   /* gen_emit 的产出通道 (与 yield_val 独立, 见 gen_emit) */
 } gen_ctx_t;
 
 typedef struct gen_s {
@@ -64,6 +66,24 @@ void gen_destroy(gen_t *gen);
             __ctx->lineno = __LINE__; \
             __ctx->state = GEN_STATE_MIDDLE; \
             __ctx->yield_val = (future_t*)(val); \
+            return GEN_NORMAL; \
+        case __LINE__:;
+/*
+ * gen_emit(data): 异步生成器的"产出"通道 —— 把一个数据项交给消费者 (task 的
+ * on_emit 回调), 协程随后在下一 tick 继续跑。与 gen_yield 的区别: gen_yield 出的
+ * 值被事件循环当 future 去 await; gen_emit 出的值走独立的 emit_val 字段, 由
+ * task 驱动器路由给 on_emit, 不 await。用于"一个协程边 await IO 边产出一串数据"
+ * (如 SSE 逐事件产出)。
+ *
+ * !!! 红线: gen_emit 只能在 task 顶层生成器体里用, 不能出现在被 gen_yield_from /
+ * gen_yield_from_task 调用的子生成器里。嵌套时驱动器只看顶层 ctx.state, 子 gen 的
+ * EMIT 状态冒不上来, 会被当成 await 一个 stale 指针而崩。子生成器只能 gen_yield /
+ * gen_yield_from_task / gen_return。
+ */
+#define gen_emit(data) \
+            __ctx->lineno = __LINE__; \
+            __ctx->state = GEN_STATE_EMIT; \
+            __ctx->emit_val = (void*)(data); \
             return GEN_NORMAL; \
         case __LINE__:;
 #define _CONNECT1(x,y) x##y

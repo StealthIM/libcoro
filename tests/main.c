@@ -4,6 +4,7 @@
 
 int test_nested_task();
 int test_empty_task();
+int test_emit();
 #ifndef LIBCORO_NO_OFFLOAD
 int test_offload();
 #endif
@@ -29,6 +30,7 @@ int main(int argc, char** argv) {
 #endif
     if (strcmp(argv[1], "nested_task") == 0) return test_nested_task();
     if (strcmp(argv[1], "empty_task") == 0) return test_empty_task();
+    if (strcmp(argv[1], "emit") == 0) return test_emit();
 #ifndef LIBCORO_NO_OFFLOAD
     if (strcmp(argv[1], "offload") == 0) return test_offload();
 #endif

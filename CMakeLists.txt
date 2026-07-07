@@ -152,6 +152,7 @@ if(LIBCORO_BUILD_TESTS OR (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR))
             ${LIBCORO_LOOP_TEST}
             tests/test_nested_task.c
             tests/test_empty_task.c
+            tests/test_emit.c
             ${LIBCORO_OFFLOAD_TEST}
     )
     target_link_libraries(libcoro_tests PRIVATE libcoro)
@@ -164,6 +165,7 @@ if(LIBCORO_BUILD_TESTS OR (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR))
     endif()
     add_test(NAME test_nested_task COMMAND libcoro_tests nested_task)
     add_test(NAME test_empty_task COMMAND libcoro_tests empty_task)
+    add_test(NAME test_emit COMMAND libcoro_tests emit)
     if(LIBCORO_HAVE_OFFLOAD)
         add_test(NAME test_offload COMMAND libcoro_tests offload)
     endif()
