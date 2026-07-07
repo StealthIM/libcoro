@@ -1,6 +1,8 @@
-#include "offload.h"
-#include "pal_thread.h"
-#include "future.h"
+#include <libcoro/offload.h>
+#include <internal/offload_internal.h>
+#include <internal/loop_internal.h>
+#include <internal/pal_thread.h>
+#include <libcoro/future.h>
 
 #include <stdlib.h>
 

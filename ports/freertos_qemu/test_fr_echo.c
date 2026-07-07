@@ -18,7 +18,7 @@
 #include <string.h>
 #include <stdint.h>
 
-#include "libcoro.h"
+#include <libcoro/libcoro.h>
 #include "lwip/sockets.h"
 #include "lwip/inet.h"
 

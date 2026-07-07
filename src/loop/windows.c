@@ -1,4 +1,4 @@
-#include "loop.h"
+#include <libcoro/loop.h>
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -9,8 +9,9 @@
 #include <string.h>
 #include <assert.h>
 
-#include "task.h"
-#include "offload.h"
+#include <libcoro/task.h>
+#include <internal/offload_internal.h>
+#include <internal/loop_internal.h>
 
 #pragma comment(lib, "ws2_32.lib")
 

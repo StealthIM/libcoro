@@ -1,5 +1,5 @@
 #define _GNU_SOURCE
-#include "loop.h"
+#include <libcoro/loop.h>
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -19,8 +19,9 @@
 #include <assert.h>
 #include <time.h>
 
-#include "task.h"
-#include "offload.h"
+#include <libcoro/task.h>
+#include <internal/offload_internal.h>
+#include <internal/loop_internal.h>
 
 /* thread-local current loop (matches header extern __thread declaration) */
 __thread loop_t *current_loop = NULL;

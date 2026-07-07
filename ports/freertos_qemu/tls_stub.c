@@ -8,7 +8,7 @@
  * 裸机 TLS 集成是后续单独步骤, 那时换成真的 wolfssl.c (见 2a-TLS 接法)。
  */
 
-#include "tls.h"
+#include <asyncweb_internal/tls.h>
 #include <stdlib.h>
 #include <stdio.h>
 

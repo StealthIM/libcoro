@@ -25,9 +25,9 @@ LWIP_FR="$LWIP/contrib/ports/freertos"
 CC=arm-none-eabi-gcc
 CFLAGS="-mcpu=cortex-m3 -mthumb -g -O1 -ffreestanding -Wall -DLIBCORO_LWIP=1"
 
-INC_FR="-I$QD -I$FR/include -I$FR/portable/GCC/ARM_CM3 -I$LIBCORO/include/private"
+INC_FR="-I$QD -I$FR/include -I$FR/portable/GCC/ARM_CM3 -I$LIBCORO/include"
 INC_LWIP="-I$QD -I$LWIP/src/include -I$LWIP_FR/include -I$FR/include -I$FR/portable/GCC/ARM_CM3"
-INC_CORO="-I$QD -I$LIBCORO/include/private -I$LIBCORO/include/public -I$LWIP/src/include -I$LWIP_FR/include"
+INC_CORO="-I$QD -I$LIBCORO/include -I$LWIP/src/include -I$LWIP_FR/include"
 
 compile() { # <incset> <src...>
   local inc="$1"; shift

@@ -1,4 +1,4 @@
-#include "pal_thread.h"
+#include <internal/pal_thread.h>
 
 #include <pthread.h>
 #include <stdlib.h>

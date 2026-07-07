@@ -2,7 +2,7 @@
 
 #include <stdlib.h>
 #include <stdint.h>
-#include "loop.h"
+#include <libcoro/loop.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -18,8 +18,9 @@ typedef enum {
 typedef struct future_s future_t;
 typedef void (*future_cb_t)(future_t *fut, void *userdata);
 typedef struct future_cb_node_s future_cb_node_t;
-typedef struct callback_data_s callback_data_t;
 
+/* future 的 callback 链表节点。是 future_s 的成员, 故须在公开头可见
+ * (future 结构非 opaque —— 下面的状态查询宏直接解引用它)。 */
 typedef struct future_cb_node_s {
     future_cb_t cb;
     void *userdata;
@@ -32,12 +33,6 @@ struct future_s {
 
     future_cb_node_t *callbacks;
 };
-
-typedef struct callback_data_s {
-    future_cb_t cb;
-    future_t *future;
-    void *userdata;
-} callback_data_t;
 
 future_t *future_create();
 void future_destroy(future_t *fut);

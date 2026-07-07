@@ -15,10 +15,10 @@
 #include <string.h>
 #include <stdint.h>
 
-#include "libcoro.h"
-#include "ws.h"
-#include "sock/future_socket.h"
-#include "sock/pal_socket.h"
+#include <libcoro/libcoro.h>
+#include <asyncweb/ws.h>
+#include <asyncweb/socket.h>
+#include <asyncweb/palsock.h>
 
 #include "lwip/def.h"
 

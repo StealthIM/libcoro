@@ -19,8 +19,9 @@
  * 不提供 sync pal_socket (裸机决策)。
  */
 
-#include "loop.h"
-#include "task.h"
+#include <libcoro/loop.h>
+#include <libcoro/task.h>
+#include <libcoro/raw_setup.h>
 
 #include <stdlib.h>
 #include <string.h>

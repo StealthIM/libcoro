@@ -1,8 +1,8 @@
 #pragma once
 
 #include <stddef.h>
-#include "future.h"
-#include "generator.h"
+#include <libcoro/future.h>
+#include <libcoro/generator.h>
 
 #ifdef __cplusplus
 extern "C" {

@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
-#include "libcoro.h"
+#include <libcoro/libcoro.h>
 
 // 子task：返回一个值
 static task_t* task(child_child_task2) {

@@ -20,9 +20,9 @@ CC=arm-none-eabi-gcc
 CFLAGS="-mcpu=cortex-m3 -mthumb -g -O1 -ffreestanding -Wall -DLIBCORO_LWIP_RAW=1 ${LOOP_DEBUG:+-DLOOP_DEBUG}"
 
 INC_LWIP="-I$QD/raw_arch -I$LWIP/src/include"
-INC_CORO="-I$QD/raw_arch -I$LIBCORO/include/private -I$LIBCORO/include/public -I$LWIP/src/include -I$QD"
+INC_CORO="-I$QD/raw_arch -I$LIBCORO/include -I$LWIP/src/include -I$QD"
 # asyncweb: 要 asyncweb 私有 + libcoro 私有 + raw_arch (sockaddr/lwipopts) + lwIP
-INC_AW="-I$QD/raw_arch -I$AW/include/private -I$LIBCORO/include/private -I$LIBCORO/include/public -I$LWIP/src/include -I$QD"
+INC_AW="-I$QD/raw_arch -I$AW/include -I$LIBCORO/include -I$LWIP/src/include -I$QD"
 
 compile() {
   local inc="$1"; shift

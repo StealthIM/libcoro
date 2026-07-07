@@ -31,8 +31,8 @@ typedef void (*loop_cb_t)(loop_t *loop, void *userdata);
 typedef int32_t timer_id_t;
 
 /* create/get loop (thread-local convenience) */
-loop_t *loop_create_sub();
-extern __thread loop_t *current_loop;
+loop_t *loop_create_sub();          /* 内部: 由下面的 loop_create() inline 调用 */
+extern __thread loop_t *current_loop;  /* 内部: loop_get() 的线程局部实现 */
 #define loop_get() loop_create()
 static inline loop_t *loop_create() {
     if (!current_loop) current_loop = loop_create_sub();
@@ -48,14 +48,6 @@ int loop_cancel_timer(timer_id_t id);
 
 void loop_call_soon(loop_cb_t cb, void *userdata);
 uint64_t loop_time_ms();
-
-/* ========== offload 集成钩子 (每个后端各实现) ========== */
-
-/* 线程安全地唤醒 loop (可从 worker 线程调用)。 */
-void loop_wake(loop_t *loop);
-
-/* 取该 loop 的 offload 线程池句柄 (仅主线程)。 */
-struct offload_pool_s *loop_get_offload(loop_t *loop);
 
 /* ========== IO Future API ========== */
 
@@ -105,20 +97,6 @@ loop_op_id_t loop_accept_async(void *listen_handle, void **accept_handle_out, lo
 
 /* cancel op */
 int loop_cancel_op(loop_op_id_t id);
-
-#if defined(LIBCORO_LWIP_RAW)
-/* ========== 裸机 raw lwIP socket setup (lwip_raw.c 实现) ==========
- * NO_SYS=1 下没有 lwip_socket()/fd; 这几个函数建/配 raw_conn_t 包装, 返回它
- * 作 loop 的 void* handle。只做非阻塞 setup, 不做 sync IO (裸机决策)。
- * connect/recv/send/accept 走上面的异步 op API, handle 传这里返回的指针。 */
-void *anet_raw_new_tcp(void);
-int   anet_raw_bind(void *handle, const struct sockaddr *addr, int addrlen);
-int   anet_raw_listen(void *handle, int backlog);
-void  anet_raw_close(void *handle);
-/* 读 raw_conn 的本地绑定地址 (bind 后, 含 port==0 时内核选的临时端口)。
- * 只填 IPv4 sockaddr_in。成功返 0。 */
-int   anet_raw_getsockname(void *handle, struct sockaddr *addr, int *addrlen);
-#endif
 
 #ifdef __cplusplus
 }

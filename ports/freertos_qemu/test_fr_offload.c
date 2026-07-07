@@ -15,7 +15,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 
-#include "libcoro.h"
+#include <libcoro/libcoro.h>
 
 static int g_pass = 0;
 

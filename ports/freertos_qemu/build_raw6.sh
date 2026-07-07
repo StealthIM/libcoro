@@ -29,7 +29,7 @@ CFLAGS="-mcpu=cortex-m3 -mthumb -g -O1 -ffreestanding -Wall -DLIBCORO_LWIP_RAW=1
 
 # raw_arch 必须在最前: 覆盖 $QD 的 FreeRTOS lwipopts.h / arch/cc.h。
 INC_LWIP="-I$QD/raw_arch -I$LWIP/src/include"
-INC_CORO="-I$QD/raw_arch -I$LIBCORO/include/private -I$LIBCORO/include/public -I$LWIP/src/include -I$QD"
+INC_CORO="-I$QD/raw_arch -I$LIBCORO/include -I$LWIP/src/include -I$QD"
 
 compile() { # <incset> <src...>
   local inc="$1"; shift

@@ -1,4 +1,11 @@
-#include "task.h"
+#include <libcoro/task.h>
+
+/* 内部: schedule_callback 用来在下一个 loop tick 上跑一个 future callback。 */
+typedef struct callback_data_s {
+    future_cb_t cb;
+    future_t *future;
+    void *userdata;
+} callback_data_t;
 
 static void real_invoke_callback(loop_t *_, void *data) {
     callback_data_t *callback = data;

@@ -17,12 +17,15 @@ list(APPEND SRC_FILES
         src/future.c
         src/generator.c
         src/task.c
-        include/private/loop.h
-        include/private/future.h
-        include/private/generator.h
-        include/private/task.h
-        include/private/pal_thread.h
-        include/private/offload.h
+        include/libcoro/libcoro.h
+        include/libcoro/loop.h
+        include/libcoro/future.h
+        include/libcoro/generator.h
+        include/libcoro/task.h
+        include/libcoro/offload.h
+        include/internal/loop_internal.h
+        include/internal/offload_internal.h
+        include/internal/pal_thread.h
 )
 
 # offload 能力: 开 => 真线程池 (offload.c) + 后端各自的 pal_thread;
@@ -101,9 +104,11 @@ target_sources(libcoro PRIVATE ${SRC_FILES})
 
 target_include_directories(libcoro
         PUBLIC
-        include/public
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
         PRIVATE
-        include/private
+        # 内部头 (<internal/...>): 仅库自身编译可见, 不安装。
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
 if(WIN32)

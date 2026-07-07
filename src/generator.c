@@ -1,6 +1,6 @@
 #include <stddef.h>
 #include <stdlib.h>
-#include "generator.h"
+#include <libcoro/generator.h>
 
 gen_t *gen_create(gen_func *func, void *userdata) {
     gen_t *gen = calloc(1, sizeof(gen_t));

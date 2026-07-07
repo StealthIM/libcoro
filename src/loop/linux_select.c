@@ -1,6 +1,7 @@
-#include "loop.h"
-#include "offload.h"
-#include "task.h"
+#include <libcoro/loop.h>
+#include <internal/offload_internal.h>
+#include <internal/loop_internal.h>
+#include <libcoro/task.h>
 
 #include <stdlib.h>
 #include <stdio.h>

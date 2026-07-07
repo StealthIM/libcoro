@@ -12,7 +12,9 @@
  */
 
 #include <stddef.h>
-#include "offload.h"
+#include <libcoro/offload.h>
+#include <internal/offload_internal.h>
+#include <internal/loop_internal.h>
 
 offload_pool_t *offload_pool_create(loop_t *loop) { (void)loop; return NULL; }
 void            offload_pool_destroy(offload_pool_t *pool) { (void)pool; }

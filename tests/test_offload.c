@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <unistd.h>
-#include "libcoro.h"
+#include <libcoro/libcoro.h>
 
 /* 在 worker 线程执行的阻塞函数:睡一会儿再返回 (arg*2)。
    返回值 (void*) 直接成为 future 的 result。 */

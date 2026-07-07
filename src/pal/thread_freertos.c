@@ -15,10 +15,10 @@
  * 直接 return)。
  */
 
-#include "pal_thread.h"
+#include <internal/pal_thread.h>
 
 #include "FreeRTOS.h"
-#include "task.h"
+#include <libcoro/task.h>
 #include "semphr.h"
 
 #include <stdlib.h>

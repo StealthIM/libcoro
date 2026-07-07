@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include "task.h"
+#include <libcoro/task.h>
 
 void task_destroy_sub_sub(loop_t *_, void *data) {
     task_t *task = data;

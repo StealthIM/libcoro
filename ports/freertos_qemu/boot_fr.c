@@ -11,7 +11,7 @@
 #include <time.h>
 
 #include "FreeRTOS.h"
-#include "task.h"
+#include <libcoro/task.h>
 
 /* test_fr_echo.c 提供 (只依赖 libcoro/lwIP) */
 extern int run_echo_loop(void);

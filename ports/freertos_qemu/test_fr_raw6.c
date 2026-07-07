@@ -12,7 +12,8 @@
 #include <string.h>
 #include <stdint.h>
 
-#include "loop.h"
+#include <libcoro/loop.h>
+#include <libcoro/raw_setup.h>
 
 #include "lwip/def.h"
 
