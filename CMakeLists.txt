@@ -171,7 +171,15 @@ endif()
 
 # ============================================================
 # 安装 / 导出 (find_package(libcoro) + pkg-config)
+#
+# lwip 后端下 libcoro PUBLIC 链了 FetchContent 源码内建的 lwip_backend
+# (built target, 不可进 export set), 此时跳过 install/export 并告警 ——
+# lwip/裸机场景本就是源码集成 (add_subdirectory/FetchContent), 不走 install。
 # ============================================================
+if(LIBCORO_LWIP)
+    message(STATUS "libcoro: lwip 后端内建 lwip_backend (不可导出), 跳过 install/export。"
+                   " lwip/裸机场景请用 add_subdirectory/FetchContent 源码集成。")
+else()
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
@@ -217,3 +225,4 @@ configure_file(
         ${CMAKE_CURRENT_BINARY_DIR}/libcoro.pc @ONLY)
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/libcoro.pc
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
+endif()  # NOT LIBCORO_LWIP
