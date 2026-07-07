@@ -1,0 +1,12 @@
+@PACKAGE_INIT@
+
+# libcoro 的公开依赖: 开 offload 时 PUBLIC 链 Threads::Threads, 下游需重新找到。
+include(CMakeFindDependencyMacro)
+if(NOT "@LIBCORO_HAVE_OFFLOAD@" STREQUAL "OFF" AND NOT WIN32)
+    set(THREADS_PREFER_PTHREAD_FLAG ON)
+    find_dependency(Threads)
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/libcoroTargets.cmake")
+
+check_required_components(libcoro)

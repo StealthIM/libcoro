@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 4.0)
+cmake_minimum_required(VERSION 3.16)
 project(libcoro VERSION 1.0.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
@@ -131,36 +131,89 @@ if(LIBCORO_LWIP)
     target_compile_definitions(libcoro PUBLIC LIBCORO_LWIP=1)
 endif()
 
-if(LIBCORO_LWIP)
-    # lwip 后端: test_loop (系统 socket + 外部网络) 换成纯栈内环回 echo。
-    set(LIBCORO_LOOP_TEST tests/test_lwip_echo.c)
-else()
-    set(LIBCORO_LOOP_TEST tests/test_loop.c)
+# 测试只在 libcoro 作为顶层项目构建时编 (被 FetchContent/add_subdirectory
+# 拉进别的项目时不编, 避免污染上层的 test 目标 + 加无谓构建开销)。
+if(LIBCORO_BUILD_TESTS OR (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR))
+    if(LIBCORO_LWIP)
+        # lwip 后端: test_loop (系统 socket + 外部网络) 换成纯栈内环回 echo。
+        set(LIBCORO_LOOP_TEST tests/test_lwip_echo.c)
+    else()
+        set(LIBCORO_LOOP_TEST tests/test_loop.c)
+    endif()
+
+    # offload 测试只在开 offload 时编入 (无线程时该测试无意义)。
+    set(LIBCORO_OFFLOAD_TEST "")
+    if(LIBCORO_HAVE_OFFLOAD)
+        set(LIBCORO_OFFLOAD_TEST tests/test_offload.c)
+    endif()
+
+    add_executable(libcoro_tests
+            tests/main.c
+            ${LIBCORO_LOOP_TEST}
+            tests/test_nested_task.c
+            tests/test_empty_task.c
+            ${LIBCORO_OFFLOAD_TEST}
+    )
+    target_link_libraries(libcoro_tests PRIVATE libcoro)
+
+    enable_testing()
+    if(LIBCORO_LWIP)
+        add_test(NAME test_lwip_echo COMMAND libcoro_tests lwip_echo)
+    else()
+        add_test(NAME test_loop COMMAND libcoro_tests loop)
+    endif()
+    add_test(NAME test_nested_task COMMAND libcoro_tests nested_task)
+    add_test(NAME test_empty_task COMMAND libcoro_tests empty_task)
+    if(LIBCORO_HAVE_OFFLOAD)
+        add_test(NAME test_offload COMMAND libcoro_tests offload)
+    endif()
 endif()
 
-# offload 测试只在开 offload 时编入 (无线程时该测试无意义)。
-set(LIBCORO_OFFLOAD_TEST "")
-if(LIBCORO_HAVE_OFFLOAD)
-    set(LIBCORO_OFFLOAD_TEST tests/test_offload.c)
-endif()
+# ============================================================
+# 安装 / 导出 (find_package(libcoro) + pkg-config)
+# ============================================================
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
 
-add_executable(libcoro_tests
-        tests/main.c
-        ${LIBCORO_LOOP_TEST}
-        tests/test_nested_task.c
-        tests/test_empty_task.c
-        ${LIBCORO_OFFLOAD_TEST}
-)
-target_link_libraries(libcoro_tests PRIVATE libcoro)
+# 只装公开头 include/libcoro/ (internal/ 不装)。
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/libcoro
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
-enable_testing()
-if(LIBCORO_LWIP)
-    add_test(NAME test_lwip_echo COMMAND libcoro_tests lwip_echo)
-else()
-    add_test(NAME test_loop COMMAND libcoro_tests loop)
+# 产物名为 libcoro.* (而非 liblibcoro.*): target 叫 libcoro, 默认会前缀 lib
+# 得到 liblibcoro; 设 OUTPUT_NAME=coro 使文件名符合惯例, pkg-config 用 -lcoro。
+set_target_properties(libcoro PROPERTIES OUTPUT_NAME coro)
+
+install(TARGETS libcoro EXPORT libcoroTargets
+        ARCHIVE  DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY  DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME  DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+# 导出 namespaced target libcoro::libcoro。
+install(EXPORT libcoroTargets
+        FILE libcoroTargets.cmake
+        NAMESPACE libcoro::
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libcoro)
+
+configure_package_config_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/libcoroConfig.cmake.in
+        ${CMAKE_CURRENT_BINARY_DIR}/libcoroConfig.cmake
+        INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libcoro)
+write_basic_package_version_file(
+        ${CMAKE_CURRENT_BINARY_DIR}/libcoroConfigVersion.cmake
+        VERSION ${PROJECT_VERSION}
+        COMPATIBILITY SameMajorVersion)
+install(FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/libcoroConfig.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/libcoroConfigVersion.cmake
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libcoro)
+
+# pkg-config
+set(LIBCORO_PC_REQUIRES "")
+if(LIBCORO_HAVE_OFFLOAD AND NOT WIN32)
+    set(LIBCORO_PC_LIBS_PRIVATE "-pthread")
 endif()
-add_test(NAME test_nested_task COMMAND libcoro_tests nested_task)
-add_test(NAME test_empty_task COMMAND libcoro_tests empty_task)
-if(LIBCORO_HAVE_OFFLOAD)
-    add_test(NAME test_offload COMMAND libcoro_tests offload)
-endif()
+configure_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/libcoro.pc.in
+        ${CMAKE_CURRENT_BINARY_DIR}/libcoro.pc @ONLY)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/libcoro.pc
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
