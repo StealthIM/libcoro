@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  # host 测试: epoll/select × offload ON/OFF, ASan+UBSan 跑测试。
+  # test_loop 依赖外部网络 (postman-echo), CI 里排除。
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [epoll, select]
+        offload: [ON, OFF]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: >
+          cmake -B build
+          -DLIBCORO_OS_BACKEND=${{ matrix.backend }}
+          -DLIBCORO_HAVE_OFFLOAD=${{ matrix.offload }}
+          -DLIBCORO_BUILD_TESTS=ON
+          -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -g"
+          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+      - name: Build
+        run: cmake --build build -j
+      - name: Test (exclude external-network)
+        working-directory: build
+        env:
+          ASAN_OPTIONS: detect_leaks=1
+          UBSAN_OPTIONS: halt_on_error=1
+        run: ctest --output-on-failure -E 'test_loop'
+
+  # lwIP socket 后端: 只验证能配置 + 构建 (拉 lwIP 源码, 不跑外部网络测试)。
+  build-lwip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure (lwip)
+        run: cmake -B build -DLIBCORO_OS_BACKEND=lwip -DLIBCORO_BUILD_TESTS=ON
+      - name: Build
+        run: cmake --build build -j
+
+  # 安装 + 下游 find_package smoke test (用 examples/)。
+  install-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install to prefix
+        run: |
+          cmake -B build -DLIBCORO_OS_BACKEND=epoll -DCMAKE_INSTALL_PREFIX="$PWD/_inst"
+          cmake --build build --target install -j
+      - name: Build examples via find_package
+        run: |
+          cmake -S examples -B examples/build -DCMAKE_PREFIX_PATH="$PWD/_inst"
+          cmake --build examples/build -j
+      - name: Run example
+        run: ./examples/build/sleep_tasks
