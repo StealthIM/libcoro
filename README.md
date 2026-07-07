@@ -1,339 +1,197 @@
 # libcoro
 
-libcoro是一个用C语言编写的协程库，提供了异步编程的基本组件，包括任务(task)、期约(future)、生成器(generator)和事件循环(loop)。
+libcoro 是一个用 C11 编写的协程 + 事件循环基础库,提供无栈协程(基于 Duff's device)、
+future/promise、生成器和事件循环。它是 [asyncweb](https://github.com/StealthIM/asyncweb)
+的底层依赖,也可作为独立库单独使用。
 
 ## 特性
 
-- **跨平台支持**: 支持Linux(epoll/select)和Windows(I/O完成端口)多种事件循环后端
-- **轻量级协程**: 基于生成器实现的协程机制
-- **Future/Promise模式**: 异步操作的结果管理
-- **事件驱动**: 高效的事件循环机制
-- **定时器支持**: 支持基于时间的异步操作
-
-## 组件介绍
-
-### 任务 (Task)
-任务是协程的基本执行单元，封装了生成器和期约。
-
-### 期约 (Future)
-用于表示异步操作的结果，支持回调注册和状态管理。
-
-### 生成器 (Generator)
-实现了类似Python生成器的功能，支持yield和yield from语义。
-
-### 事件循环 (Loop)
-提供事件驱动的运行环境，支持文件描述符事件、定时器和即时回调。
-
-## API文档
-
-### 事件循环 (Loop) API
-
-#### loop_create()
-```c
-loop_t *loop_create();
-```
-获取当前线程的事件循环实例，如果不存在则创建一个新的。
-
-#### loop_destroy()
-```c
-void loop_destroy();
-```
-销毁当前线程的事件循环实例，释放所有相关资源。
-
-#### loop_run()
-```c
-void loop_run(task_t *task);
-```
-运行事件循环，并执行指定的任务。当任务完成时循环会自动停止。
-
-#### loop_stop()
-```c
-void loop_stop();
-```
-停止事件循环。
-
-#### loop_register_handle()
-```c
-int loop_register_handle(void *handle, loop_cb_t cb, void *userdata);
-```
-注册一个文件描述符（或socket句柄）到事件循环中，当有数据可读时会调用回调函数。
-
-参数：
-- handle: 文件描述符或socket句柄
-- cb: 回调函数
-- userdata: 用户数据
-
-#### loop_unregister_handle()
-```c
-int loop_unregister_handle(void *handle, bool close_socket);
-```
-从事件循环中注销一个文件描述符（或socket句柄）。
-
-参数：
-- handle: 文件描述符或socket句柄
-- close_socket: 是否同时关闭socket
-
-#### loop_add_timer()
-```c
-timer_id_t loop_add_timer(uint64_t when_ms, loop_cb_t cb, void *userdata);
-```
-添加一个定时器，在指定的毫秒数后调用回调函数。
-
-参数：
-- when_ms: 延迟的毫秒数
-- cb: 回调函数
-- userdata: 用户数据
-
-返回值：定时器ID，用于取消定时器
-
-#### loop_cancel_timer()
-```c
-int loop_cancel_timer(timer_id_t id);
-```
-取消指定ID的定时器。
-
-参数：
-- id: 定时器ID
-
-#### loop_call_soon()
-```c
-void loop_call_soon(loop_cb_t cb, void *userdata);
-```
-将回调函数添加到事件循环的下一次迭代中执行。
-
-参数：
-- cb: 回调函数
-- userdata: 用户数据
-
-#### loop_time_ms()
-```c
-uint64_t loop_time_ms();
-```
-获取当前时间戳（毫秒）。
-
-### 期约 (Future) API
-
-#### future_create()
-```c
-future_t *future_create();
-```
-创建一个新的期约对象。
-
-#### future_destroy()
-```c
-void future_destroy(future_t *fut);
-```
-销毁期约对象，释放相关资源。
-
-#### future_done()
-```c
-void future_done(future_t *fut, void *result);
-```
-将期约标记为已完成，并设置结果。
-
-参数：
-- fut: 期约对象
-- result: 结果数据
-
-#### future_reject()
-```c
-void future_reject(future_t *fut, void *value);
-```
-将期约标记为已拒绝，并设置错误值。
-
-参数：
-- fut: 期约对象
-- value: 错误值
-
-#### future_cancel()
-```c
-void future_cancel(future_t *fut);
-```
-将期约标记为已取消。
-
-参数：
-- fut: 期约对象
-
-#### future_add_done_callback()
-```c
-void future_add_done_callback(future_t *fut, future_cb_t cb, void *userdata);
-```
-为期约添加完成回调函数。
-
-参数：
-- fut: 期约对象
-- cb: 回调函数
-- userdata: 用户数据
-
-#### async_sleep()
-```c
-future_t *async_sleep(uint64_t ms);
-```
-创建一个在指定毫秒数后完成的期约。
-
-参数：
-- ms: 延迟的毫秒数
-
-### 任务 (Task) API
-
-#### task_create()
-```c
-task_t *task_create(gen_t *gen);
-```
-创建一个新任务，封装指定的生成器。
-
-参数：
-- gen: 生成器对象
-
-#### task_destroy()
-```c
-void task_destroy(task_t *task);
-```
-销毁任务对象，释放相关资源。
-
-参数：
-- task: 任务对象
-
-#### task_run()
-```c
-void task_run(task_t *task);
-```
-在事件循环中运行任务。
-
-参数：
-- task: 任务对象
-
-### 生成器 (Generator) API
-
-#### gen_create()
-```c
-gen_t *gen_create(gen_func *func, void *userdata);
-```
-创建一个新的生成器对象。
-
-参数：
-- func: 生成器函数
-- userdata: 用户数据
-
-#### gen_destroy()
-```c
-void gen_destroy(gen_t *gen);
-```
-销毁生成器对象，释放相关资源。
-
-参数：
-- gen: 生成器对象
-
-#### gen_send()
-```c
-void *gen_send(gen_t *gen, void *arg);
-```
-向生成器发送一个值并恢复执行。
-
-参数：
-- gen: 生成器对象
-- arg: 发送的值
-
-#### gen_next()
-```c
-void *gen_next(gen);
-```
-获取生成器的下一个值。
-
-参数：
-- gen: 生成器对象
-
-#### gen_close()
-```c
-void gen_close(gen_t *gen);
-```
-关闭生成器，执行清理操作。
-
-参数：
-- gen: 生成器对象
-
-## 构建选项
-
-在构建时可以选择不同的后端实现：
-
-- `LIBCORO_USE_LINUX_EPOLL`: 使用Linux epoll后端
-- `LIBCORO_USE_LINUX_SELECT`: 使用Linux select后端
-- `LIBCORO_USE_WIN32`: 使用Win32后端
-
-注意：必须且只能启用一个后端。
+- **无栈协程**:基于 Duff's device 的零额外分配协程 DSL(`gen_begin`/`gen_yield`/`gen_yield_from_task`)
+- **Future/Promise**:异步结果的状态管理与完成回调
+- **事件循环**:统一的异步 IO future API(recv/send/connect/accept)
+- **多后端**:Linux(epoll/select)、Windows(IOCP)、lwIP(socket 模式 / 裸机 NO_SYS raw 模式)
+- **可选线程池 offload**:把阻塞调用丢到 worker 线程,完成后在 loop 线程 resolve future(如异步 DNS)
+- **可裁剪**:无线程目标(裸机)可关掉 offload,不引入任何线程依赖
 
 ## 安装依赖
 
-需要CMake 4.0或更高版本。
+- CMake ≥ 3.16
+- C11 编译器
+- 开启 offload 时(默认)需要线程库(POSIX pthread / Win32)
 
-## 构建方法
+## 构建
+
+必须选择一个事件循环后端(`LIBCORO_OS_BACKEND`):
 
 ```bash
-mkdir build
-cd build
-# 选择一个后端启用
-cmake .. -DLIBCORO_USE_LINUX_EPOLL=ON
-make
+cmake -B build -DLIBCORO_OS_BACKEND=epoll
+cmake --build build
 ```
 
-## 使用示例
+| 后端 | 平台 | 说明 |
+|------|------|------|
+| `epoll`  | Linux | 默认推荐 |
+| `select` | Linux | 可移植回退 |
+| `win`    | Windows | IOCP |
+| `lwip`   | 任意 + lwIP | socket 模式(host port);裸机 raw 模式见 `ports/freertos_qemu/` |
 
-以下是一个简单的示例，展示如何使用libcoro创建和运行一个协程任务：
+其他选项:
+
+- `LIBCORO_HAVE_OFFLOAD`(默认 `ON`):是否构建线程池 offload。无线程目标(裸机 `NO_SYS`)应设为 `OFF`,
+  此时 `loop_run_in_thread` 返回 `NULL`,调用方需自备无线程回落(如 lwIP 原生异步 DNS)。
+- `LIBCORO_BUILD_TESTS`:强制构建测试(作为顶层项目时默认开)。
+
+### 安装 / find_package / pkg-config
+
+```bash
+cmake -B build -DLIBCORO_OS_BACKEND=epoll -DCMAKE_INSTALL_PREFIX=/your/prefix
+cmake --build build --target install
+```
+
+下游 CMake 项目:
+
+```cmake
+find_package(libcoro REQUIRED)
+target_link_libraries(your_app PRIVATE libcoro::libcoro)
+```
+
+或 pkg-config:
+
+```bash
+cc app.c $(pkg-config --cflags --libs libcoro) -o app
+```
+
+产物为静态库 `libcoro.a`(`-lcoro`),公开头安装到 `<prefix>/include/libcoro/`。
+
+## 核心概念
+
+- **生成器 (`gen_t`)**:一个可暂停/恢复的函数。用 DSL 宏在函数体里 `gen_yield` 出去、下次从原处恢复。
+- **任务 (`task_t`)**:包装一个生成器,附带自己的完成 future(`task->future`)。用 `task(name)` / `task_arg(name)` 宏声明。
+- **Future (`future_t`)**:异步结果。`gen_yield(future)` 会把 future 交给驱动,完成后恢复协程。
+- **事件循环 (`loop_t`)**:线程局部的驱动器。`loop_run(task)` 跑到该任务完成为止。
+
+`gen_yield(fut)` 用于 await 一个 **future**;`gen_yield_from_task(t)` 用于 await 一个 **子任务**。
+协程内的局部变量必须用 `gen_dec_vars(...)` 声明、`gen_var(x)` 访问(栈变量在暂停期间不保留)。
+
+## 快速示例
+
+见 [`examples/sleep_tasks.c`](examples/sleep_tasks.c):父任务起一个子任务并 await 其结果。
 
 ```c
-#include "libcoro.h"
 #include <stdio.h>
+#include <libcoro/libcoro.h>
 
-// 协程函数示例
-gen_ret_t example_coro_func(gen_ctx_t *ctx, void *arg) {
-    (void)arg;
-    
-    // 开始协程
+static task_t *task(worker) {
+    gen_dec_vars(int result;);
     gen_begin(ctx);
-    
-    // 第一次yield
-    gen_yield("First yield");
-
-    // 等待1秒
-    {
-        future_t *sleep_fut = async_sleep(1000);
-        gen_yield_from(sleep_fut);
-    }
-
-    // 第二次yield
-    gen_yield("Second yield");
-
-    // 再等待1秒
-    {
-        future_t *sleep_fut = async_sleep(1000);
-        gen_yield_from(sleep_fut);
-    }
-
-    // 完成
-    gen_end("Coroutine finished");
+    gen_yield(async_sleep(50));          /* await future */
+    gen_var(result) = 21;
+    gen_yield(async_sleep(50));
+    gen_end((void *)(intptr_t)(gen_var(result) * 2));
 }
 
-int main() {
-    // 创建事件循环
-    loop_t *loop = loop_create();
-    
-    // 创建生成器
-    gen_t *gen = gen_create(example_coro_func, NULL);
-    
-    // 创建任务
-    task_t *task = task_create(gen);
-    
-    // 运行事件循环
-    loop_run(task);
-    
-    // 清理资源
-    task_destroy(task);
+static task_t *task(parent) {
+    gen_dec_vars(task_t *child;);
+    gen_begin(ctx);
+    gen_var(child) = worker();
+    gen_yield_from_task(gen_var(child)); /* await 子任务 */
+    printf("worker -> %d\n", (int)(intptr_t)gen_var(child)->future->result);
+    gen_end(NULL);
+}
+
+int main(void) {
+    loop_run(parent());
     loop_destroy();
-    
     return 0;
 }
 ```
 
+## API 概览
+
+### 事件循环 (`loop.h`)
+
+```c
+loop_t  *loop_create();               /* = loop_get(): 取/建当前线程的 loop */
+void     loop_destroy();
+void     loop_run(task_t *task);      /* 跑到 task 完成 */
+void     loop_stop();
+
+timer_id_t loop_add_timer(uint64_t when_ms, loop_cb_t cb, void *userdata);
+int        loop_cancel_timer(timer_id_t id);
+void       loop_call_soon(loop_cb_t cb, void *userdata);
+uint64_t   loop_time_ms();
+```
+
+低层异步 IO future API(一次性 op,完成时调 `loop_io_cb_t`):
+
+```c
+int          loop_bind_handle(void *handle);   /* 每个 socket 用前调一次 */
+loop_op_id_t loop_post_recv(void *handle, char *buf, unsigned long len, loop_io_cb_t cb, void *ud);
+loop_op_id_t loop_post_send(void *handle, const char *buf, unsigned long len, loop_io_cb_t cb, void *ud);
+loop_op_id_t loop_connect_async(void *handle, const struct sockaddr *addr, int addrlen, loop_io_cb_t cb, void *ud);
+loop_op_id_t loop_accept_async(void *listen_handle, void **accept_out, loop_io_cb_t cb, void *ud);
+int          loop_cancel_op(loop_op_id_t id);
+```
+
+### Future (`future.h`)
+
+```c
+future_t *future_create();
+void      future_destroy(future_t *fut);
+void      future_done(future_t *fut, void *result);
+void      future_reject(future_t *fut, void *value);
+void      future_cancel(future_t *fut);
+void      future_add_done_callback(future_t *fut, future_cb_t cb, void *userdata);
+void      future_remove_done_callback(future_t *fut, future_cb_t cb);
+future_t *async_sleep(uint64_t ms);   /* 返回一个 ms 毫秒后完成的 future */
+
+/* 状态查询宏 */
+future_state(fut)  future_result(fut)
+future_is_pending(fut)  future_is_done(fut)  future_is_rejected(fut)  future_is_cancelled(fut)
+```
+
+### 任务 (`task.h`)
+
+```c
+task_t *task_create(gen_t *gen);
+void    task_run(task_t *task);       /* 挂到 loop 里跑 (不阻塞) */
+void    task_destroy(task_t *task);
+void    task_remove_auto_destroy(task_t *task);
+
+/* 声明宏: task(name){...} / task_arg(name){...} (后者带 void* data 入参) */
+```
+
+### 生成器 (`generator.h`)
+
+```c
+gen_t *gen_create(gen_func *func, void *userdata);
+void   gen_destroy(gen_t *gen);
+void  *gen_send(gen_t *gen, void *arg);
+#define gen_next(gen) gen_send((gen), NULL)
+void   gen_close(gen_t *gen);
+
+/* 协程体 DSL */
+gen_dec_vars(...)  gen_begin(ctx)  gen_var(x)  gen_userdata()
+gen_yield(future)  gen_yield_from_task(task)  gen_end(val)  gen_return(val)  gen_cleanup()
+```
+
+### Offload 线程池 (`offload.h`)
+
+```c
+/* 把 fn(arg) 丢到 worker 线程, 返回一个在完成时 resolve 的 future。
+ * 无 offload 能力的构建 (LIBCORO_HAVE_OFFLOAD=OFF) 返回 NULL。 */
+future_t *loop_run_in_thread(void *(*fn)(void *arg), void *arg);
+```
+
+## 目录
+
+- `include/libcoro/` — 公开头(安装)
+- `include/internal/` — 内部头(不安装)
+- `src/` — 实现(loop 后端在 `src/loop/`)
+- `ports/` — lwIP host port + FreeRTOS/裸机 QEMU port(含 raw NO_SYS 后端)
+- `examples/` — 最小示例
+- `tests/` — 测试
+
 ## 许可证
 
-MIT许可证
+MIT
